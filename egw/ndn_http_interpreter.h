@@ -23,35 +23,29 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "global.h"
 #include "module.h"
 #include "ndn_sink.h"
-#include "http_sink.h"
-#include "ndn_message.h"
+#include "http_source.h"
+#include "ndn_content.h"
 #include "http_request.h"
 #include "http_response.h"
 
-class NdnHttpInterpreter : public Module, public NdnSink {
+class NdnHttpInterpreter : public Module, public NdnSink, public HttpSource {
 private:
-    NdnSink *_ndn_client;
-    NdnSink *_ndn_server;
-    HttpSink *_http_client;
-
-    cuckoohash_map<std::shared_ptr<HttpRequest>, ndn::Name> _map;
+    cuckoohash_map<std::shared_ptr<HttpRequest>, std::string> _pending_requests;
 
 public:
     NdnHttpInterpreter(size_t concurrency = 1);
 
     virtual void run() override;
 
-    virtual void solve(std::shared_ptr<NdnMessage> ndn_message) override;
+    virtual void fromNdnSource(const std::shared_ptr<NdnContent> &ndn_content) override;
 
-    void solve_handler(const std::shared_ptr<NdnMessage> &ndn_message);
+    void forward_handler(const std::shared_ptr<NdnContent> &ndn_content);
 
-    void get_http_request_header(const std::shared_ptr<HttpRequest> &http_request, const std::shared_ptr<HttpResponse> &http_response,
-                                 const std::shared_ptr<NdnMessage> &ndn_message, const std::shared_ptr<boost::asio::deadline_timer> &timer);
+    void get_http_request_header(const std::shared_ptr<HttpRequest> &http_request, const std::shared_ptr<boost::asio::deadline_timer> &timer);
 
-    void set_ndn_message_cachability(const std::shared_ptr<HttpResponse> &http_response, const std::shared_ptr<NdnMessage> &ndn_message,
-                                     const std::shared_ptr<boost::asio::deadline_timer> &timer);
+    void takeBack(std::shared_ptr<HttpRequest> http_request, std::shared_ptr<HttpResponse> http_response) override;
 
-    void attach_ndn_sinks(NdnSink *ndn_client, NdnSink *ndn_server);
+    void takeBackHandler(std::shared_ptr<HttpRequest> http_request, std::shared_ptr<HttpResponse> http_response);
 
-    void attach_http_sink(HttpSink *http_sink);
+    void setNdnMessageCachability(const std::shared_ptr<NdnContent> &ndn_message, const std::shared_ptr<HttpResponse> &http_response);
 };

@@ -17,6 +17,50 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <regex>
 #include <algorithm>
 
+const char SAFE[256] = {
+/*      0 1 2 3  4 5 6 7  8 9 A B  C D E F */
+/* 0 */ 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0,
+/* 1 */ 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0,
+/* 2 */ 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0,
+/* 3 */ 1,1,1,1, 1,1,1,1, 1,1,0,0, 0,0,0,0,
+
+/* 4 */ 0,1,1,1, 1,1,1,1, 1,1,1,1, 1,1,1,1,
+/* 5 */ 1,1,1,1, 1,1,1,1, 1,1,1,0, 0,0,0,0,
+/* 6 */ 0,1,1,1, 1,1,1,1, 1,1,1,1, 1,1,1,1,
+/* 7 */ 1,1,1,1, 1,1,1,1, 1,1,1,0, 0,0,0,0,
+
+/* 8 */ 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0,
+/* 9 */ 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0,
+/* A */ 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0,
+/* B */ 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0,
+
+/* C */ 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0,
+/* D */ 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0,
+/* E */ 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0,
+/* F */ 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0
+};
+
+std::string uri_encode(const std::string & sSrc){
+    const char DEC2HEX[16 + 1] = "0123456789ABCDEF";
+    const unsigned char * pSrc = (const unsigned char *)sSrc.c_str();
+    const int SRC_LEN = sSrc.length();
+    unsigned char * const pStart = new unsigned char[SRC_LEN * 3];
+    unsigned char * pEnd = pStart;
+    const unsigned char * const SRC_END = pSrc + SRC_LEN;
+    for (; pSrc < SRC_END; ++pSrc){
+        if (SAFE[*pSrc])*pEnd++ = *pSrc;
+        else{
+            // escape this char
+            *pEnd++ = '%';
+            *pEnd++ = DEC2HEX[*pSrc >> 4];
+            *pEnd++ = DEC2HEX[*pSrc & 0x0F];
+        }
+    }
+    std::string sResult((char *)pStart, (char *)pEnd);
+    delete [] pStart;
+    return sResult;
+}
+
 NdnHttpInterpreter::NdnHttpInterpreter(size_t concurrency) : Module(concurrency) {
 
 }
@@ -25,37 +69,34 @@ void NdnHttpInterpreter::run() {
 
 }
 
-void NdnHttpInterpreter::solve(std::shared_ptr<NdnMessage> ndn_message) {
-    _ios.post(boost::bind(&NdnHttpInterpreter::solve_handler, this, ndn_message));
+void NdnHttpInterpreter::fromNdnSource(const std::shared_ptr<NdnContent> &ndn_content) {
+    _ios.post(boost::bind(&NdnHttpInterpreter::forward_handler, this, ndn_content));
 }
 
-void NdnHttpInterpreter::solve_handler(const std::shared_ptr<NdnMessage> &ndn_message) {
-    auto http_request = std::make_shared<HttpRequest>();
-    auto http_response = std::make_shared<HttpResponse>();
-    auto ndn_client_message = std::make_shared<NdnMessage>(http_request->get_raw_stream());
-    auto ndn_server_message = std::make_shared<NdnMessage>(http_response->get_raw_stream());
-
-    int n=0;
-    while(!ndn_message->get_name().get(++n).isVersion());
-    ndn_client_message->set_name(ndn_message->get_name().getSubName(n+1));
-    ndn::Name name(ndn_message->get_name().getPrefix(n));
-    ndn_server_message->set_name(name.append(ndn_message->get_name().get(-1)));
-    _ndn_client->solve(ndn_client_message);
+void NdnHttpInterpreter::forward_handler(const std::shared_ptr<NdnContent> &ndn_content) {
+    auto http_request = std::make_shared<HttpRequest>(ndn_content->get_raw_stream());
+    _pending_requests.insert(std::shared_ptr<HttpRequest>(http_request), ndn_content->get_name().get(-1).toUri());
 
     auto timer = std::make_shared<boost::asio::deadline_timer>(_ios);
-    _ios.post(boost::bind(&NdnHttpInterpreter::get_http_request_header, this, http_request, http_response, ndn_server_message, timer));
+    get_http_request_header(http_request, timer);
 }
 
-void NdnHttpInterpreter::get_http_request_header(const std::shared_ptr<HttpRequest> &http_request, const std::shared_ptr<HttpResponse> &http_response,
-                                                 const std::shared_ptr<NdnMessage> &ndn_message, const std::shared_ptr<boost::asio::deadline_timer> &timer){
+void NdnHttpInterpreter::get_http_request_header(const std::shared_ptr<HttpRequest> &http_request, const std::shared_ptr<boost::asio::deadline_timer> &timer) {
     if(!http_request->get_raw_stream()->is_aborted()) {
+        // keep track of completion before doing the job because if set to true and no HTTP header found then discard
+        bool is_complete = http_request->get_raw_stream()->is_completed();
+
+        // look for a HTTP header
         std::string raw_data = http_request->get_raw_stream()->raw_data_as_string();
         size_t delimiter_index = raw_data.find("\r\n\r\n");
         if (delimiter_index != std::string::npos) {
-            //http_request->get_raw_stream()->remove_first_bytes(delimiter_index + 4);
+            // remove the HTTP header from the stream
+            http_request->get_raw_stream()->remove_first_bytes(delimiter_index + 4);
+
             std::stringstream header(raw_data);
             std::string header_line;
 
+            // parse the first line (METHOD URL Version)
             std::string url;
             std::getline(header, header_line);
             if ((delimiter_index = header_line.find(' ')) != std::string::npos) {
@@ -68,28 +109,34 @@ void NdnHttpInterpreter::get_http_request_header(const std::shared_ptr<HttpReque
                         http_request->set_version(header_line.substr(last_delimiter_index, delimiter_index - last_delimiter_index));
                     } else {
                         http_request->get_raw_stream()->is_aborted(true);
+                        _pending_requests.erase(http_request);
                         return;
                     }
                 } else {
                     http_request->get_raw_stream()->is_aborted(true);
+                    _pending_requests.erase(http_request);
                     return;
                 }
             } else {
                 http_request->get_raw_stream()->is_aborted(true);
+                _pending_requests.erase(http_request);
                 return;
             }
 
-            std::regex pattern("^(?:https?://)?(?:[^/]+?(?::\\d+)?)?(/.*?(\\..+?)?)(\\?.*)?$",
-                               std::regex_constants::icase);
+            // only look for a path, it is not a proxy this time
+            std::regex pattern("^(/.*?(\\.[^.?]+?)?)(\\?.*)?$", std::regex_constants::icase);
             std::smatch results;
             if (std::regex_search(url, results, pattern)) {
                 http_request->set_path(results[1]);
                 http_request->set_extension(results[2]);
                 http_request->set_query(results[3]);
             } else {
+                http_request->get_raw_stream()->is_aborted(true);
+                _pending_requests.erase(http_request);
                 return;
             }
 
+            // get all HTTP header fields
             std::getline(header, header_line);
             while ((delimiter_index = header_line.find(':')) != std::string::npos) {
                 std::string name = header_line.substr(0, delimiter_index);
@@ -102,55 +149,107 @@ void NdnHttpInterpreter::get_http_request_header(const std::shared_ptr<HttpReque
 
             if (http_request->has_minimal_requirements()) {
                 http_request->is_parsed(true);
-                _http_client->solve(http_request, http_response);
-                _ios.post(boost::bind(&NdnHttpInterpreter::set_ndn_message_cachability, this, http_response, ndn_message, timer));
+                _http_sink->give(http_request);
             } else {
                 http_request->get_raw_stream()->is_aborted(true);
+                _pending_requests.erase(http_request);
+                return;
             }
-        } else {
+        // only redo if message was not complete before HTTP header check
+        } else if (!is_complete) {
             timer->expires_from_now(global::DEFAULT_WAIT_REDO);
-            timer->async_wait(boost::bind(&NdnHttpInterpreter::get_http_request_header, this, http_request, http_response, ndn_message, timer));
+            timer->async_wait(boost::bind(&NdnHttpInterpreter::get_http_request_header, this, http_request, timer));
         }
+    } else {
+        _pending_requests.erase(http_request);
     }
 }
 
-void NdnHttpInterpreter::set_ndn_message_cachability(const std::shared_ptr<HttpResponse> &http_response, const std::shared_ptr<NdnMessage> &ndn_message,
-                                                     const std::shared_ptr<boost::asio::deadline_timer> &timer) {
+void NdnHttpInterpreter::takeBack(std::shared_ptr<HttpRequest> http_request, std::shared_ptr<HttpResponse> http_response) {
+    _ios.post(boost::bind(&NdnHttpInterpreter::takeBackHandler, this, http_request, http_response));
+}
+
+void NdnHttpInterpreter::takeBackHandler(std::shared_ptr<HttpRequest> http_request, std::shared_ptr<HttpResponse> http_response) {
     if (!http_response->get_raw_stream()->is_aborted()) {
-        if (http_response->is_parsed()) {
-            http_response->add_header_to_raw_stream();
-            std::string cache_control = http_response->get_field("cache-control");
-            unsigned long delimiter;
-            ndn::time::milliseconds freshness = ndn::time::milliseconds(3600000);
-            if (http_response->get_field("pragma") == "no-cache" || cache_control.find("no-store") != std::string::npos ||
-                    cache_control.find("no-cache") != std::string::npos || cache_control.find("private") != std::string::npos) {
-                freshness = ndn::time::milliseconds(0);
-            } else if((delimiter = cache_control.find("s-maxage")) != std::string::npos || (delimiter = cache_control.find("max-age")) != std::string::npos){
-                try {
-                    std::string sub = cache_control.substr(delimiter);
-                    freshness = ndn::time::milliseconds(std::stol(sub.substr(sub.find('=') + 1)));
-                } catch(const std::exception &e){}
-            } else if(!http_response->get_field("expires").empty()) {
-                try {
-                    freshness = ndn::time::duration_cast<ndn::time::milliseconds>(
-                            ndn::time::fromString(http_response->get_field("expires"), "%a, %d %b %Y %H:%M:%S %Z") - ndn::time::system_clock::now());
-                } catch(const std::exception &e){}
+        // prepare NDN server message
+        auto ndn_message = std::make_shared<NdnContent>(http_response->get_raw_stream());
 
-            }
-            ndn_message->set_freshness(freshness);
-            _ndn_server->solve(ndn_message);
-        } else {
-            timer->expires_from_now(global::DEFAULT_WAIT_REDO);
-            timer->async_wait(boost::bind(&NdnHttpInterpreter::set_ndn_message_cachability, this, http_response, ndn_message, timer));
+        ndn::Name name("http");
+        //tokenize domain
+        std::string host = http_request->get_field("host");
+        auto host_it = host.find(':');
+        std::stringstream domain(host_it != std::string::npos ? host.substr(0, host_it) : host);
+        std::string domain_token;
+        std::vector<std::string> domain_tokens;
+        while (std::getline(domain, domain_token, '.')) {
+            domain_tokens.emplace_back(domain_token);
         }
+        auto domain_it = domain_tokens.rbegin();
+        while (domain_it != domain_tokens.rend()) {
+            name.append(*domain_it++);
+        }
+
+        //tokenize path
+        std::stringstream path(http_request->get_path());
+        std::string path_token;
+        std::vector<std::string> path_tokens;
+        while (std::getline(path, path_token, '/')) {
+            if (!path_token.empty() && (path_token != "." && path_token != "..")) {
+                path_tokens.emplace_back(path_token);
+            }
+        }
+        auto path_it = path_tokens.begin();
+        while (path_it != path_tokens.end()) {
+            name.append(uri_encode(*path_it++));
+        }
+
+        name.append(_pending_requests.find(http_request));
+
+        ndn_message->set_name(name);
+        http_response->add_header_to_raw_stream();
+
+        setNdnMessageCachability(ndn_message, http_response);
+        //std::cout << ndn_message->get_name() << std::endl;
+
+        // send the message to the ndn module
+        _ndn_source->fromNdnSink(ndn_message);
     }
+    _pending_requests.erase(http_request);
 }
 
-void NdnHttpInterpreter::attach_ndn_sinks(NdnSink *ndn_client, NdnSink *ndn_server) {
-    _ndn_client = ndn_client;
-    _ndn_server = ndn_server;
-}
+void NdnHttpInterpreter::setNdnMessageCachability(const std::shared_ptr<NdnContent> &ndn_message, const std::shared_ptr<HttpResponse> &http_response) {
+    std::string cache_control = http_response->get_field("cache-control");
+    unsigned long delimiter;
 
-void NdnHttpInterpreter::attach_http_sink(HttpSink *http_sink) {
-    _http_client = http_sink;
+    // default freshness value
+    ndn::time::milliseconds freshness = ndn::time::milliseconds(0);
+    // follow the wish of the HTTP server
+    if (http_response->get_field("pragma") == "no-cache" || cache_control.find("no-store") != std::string::npos ||
+            cache_control.find("no-cache") != std::string::npos || cache_control.find("private") != std::string::npos) {
+        freshness = ndn::time::milliseconds(0);
+    } else if ((delimiter = cache_control.find("s-maxage")) != std::string::npos ||
+            (delimiter = cache_control.find("max-age")) != std::string::npos) {
+        try {
+            std::string sub = cache_control.substr(delimiter);
+            freshness = ndn::time::milliseconds(1000 * std::stol(sub.substr(sub.find('=') + 1)));
+        } catch (const std::exception &e) {}
+    } else if (!http_response->get_field("expires").empty()) {
+        try {
+            freshness = ndn::time::duration_cast<ndn::time::milliseconds>(
+                    ndn::time::fromString(http_response->get_field("expires"), "%a, %d %b %Y %H:%M:%S %Z") -
+                    ndn::time::system_clock::now());
+            // it is possible to have a negative value
+            if (freshness.count() < 0) {
+                freshness = ndn::time::milliseconds(0);
+            }
+        } catch (const std::exception &e) {}
+    }
+    ndn_message->set_freshness(freshness);
+
+    // use the version of the server if it specifies one
+    try {
+        ndn_message->set_timestamp(ndn::time::fromString(http_response->get_field("last-modified"), "%a, %d %b %Y %H:%M:%S %Z"));
+    } catch (const std::exception &e) {
+        ndn_message->set_timestamp(ndn::time::system_clock::now());
+    }
 }

@@ -14,7 +14,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "raw_stream.h"
 
-RawStream::RawStream() : _completed(false), _aborted(false) {
+#include <iostream>
+
+RawStream::RawStream() : _completed(false), _aborted(false), _total_read_bytes(0) {
 
 }
 
@@ -26,28 +28,38 @@ bool RawStream::is_completed() {
     return _completed;
 }
 
-bool RawStream::is_aborted() {
-    return _aborted;
-}
 
 void RawStream::is_completed(bool completed) {
     _completed = completed;
+}
+
+bool RawStream::is_aborted() {
+    return _aborted;
 }
 
 void RawStream::is_aborted(bool aborted) {
     _aborted = aborted;
 }
 
+uint64_t RawStream::get_total_read_bytes() {
+    return _total_read_bytes;
+}
+
 void RawStream::append_raw_data_at_first(std::string data) {
     std::lock_guard<std::mutex> lock(_mutex);
     std::streamsize pos = _raw_data.tellp();
     _raw_data.str(data + _raw_data.str());
-    _raw_data.seekp(pos + data.length());
+    _raw_data.seekp(pos + data.size());
 }
 
 void RawStream::append_raw_data(const std::istream &stream) {
     std::lock_guard<std::mutex> lock(_mutex);
     _raw_data << stream.rdbuf();
+};
+
+void RawStream::append_raw_data(std::streambuf *buffer) {
+    std::lock_guard<std::mutex> lock(_mutex);
+    _raw_data << buffer;
 };
 
 void RawStream::append_raw_data(const char *buffer, size_t size) {
@@ -56,11 +68,6 @@ void RawStream::append_raw_data(const char *buffer, size_t size) {
 };
 
 void RawStream::append_raw_data(const std::string &data) {
-    std::lock_guard<std::mutex> lock(_mutex);
-    _raw_data << data;
-};
-
-void RawStream::append_raw_data(std::string &&data) {
     std::lock_guard<std::mutex> lock(_mutex);
     _raw_data << data;
 };
@@ -74,19 +81,24 @@ long RawStream::read_raw_data(char *buffer, size_t size) {
     std::lock_guard<std::mutex> lock(_mutex);
     if(!_completed && !_aborted){
         if (_raw_data.tellp() - _raw_data.tellg() >= size) {
-            return _raw_data.read(buffer, size).gcount();
+            auto read_bytes = _raw_data.read(buffer, size).gcount();
+            _total_read_bytes += read_bytes;
+            return read_bytes;
         } else {
             return -1;
         }
     }else {
-        return _raw_data.read(buffer, size).gcount();
+        auto read_bytes = _raw_data.read(buffer, size).gcount();
+        _total_read_bytes += read_bytes;
+        return read_bytes;
     }
 }
 
 void RawStream::remove_first_bytes(size_t size) {
     std::lock_guard<std::mutex> lock(_mutex);
-    char buffer[size];
-    _raw_data.read(buffer, size);
+    size = std::min(size, (size_t)(_raw_data.tellp() - _raw_data.tellg()));
+    _raw_data.seekg(size, std::stringstream::cur);
+    _total_read_bytes += size;
 }
 
 std::string RawStream::raw_data_as_string() {

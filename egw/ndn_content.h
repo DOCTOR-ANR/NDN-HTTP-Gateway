@@ -14,29 +14,46 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #pragma once
 
-#include <ndn-cxx/name.hpp>
+#include <ndn-cxx/data.hpp>
 
 #include <memory>
 
 #include "message.h"
 #include "raw_stream.h"
 
-class NdnMessage : public Message {
+class NdnContent : public Message {
 private:
     ndn::Name _name;
-
     ndn::time::milliseconds _freshness;
+    ndn::time::system_clock::time_point _timestamp;
+
+    std::chrono::steady_clock::time_point _last_access;
+    std::map<uint64_t, std::shared_ptr<ndn::Data>> _datas;
 
 public:
-    NdnMessage();
+    NdnContent();
 
-    NdnMessage(std::shared_ptr<RawStream> raw_stream);
+    NdnContent(const std::shared_ptr<RawStream> &raw_stream);
 
     const ndn::Name& get_name() const;
 
-    const NdnMessage& set_name(const ndn::Name &name);
+    void set_name(const ndn::Name &name);
 
     const ndn::time::milliseconds& get_freshness() const;
 
-    const NdnMessage& set_freshness(const ndn::time::milliseconds& freshness);
+    void set_freshness(const ndn::time::milliseconds& freshness);
+
+    const ndn::time::system_clock::time_point& get_timestamp() const;
+
+    void set_timestamp(const ndn::time::system_clock::time_point& freshness);
+
+    const std::chrono::steady_clock::time_point& get_last_access() const;
+
+    void refresh();
+
+    void add_data(uint64_t segment, std::shared_ptr<ndn::Data> data);
+
+    std::map<uint64_t, std::shared_ptr<ndn::Data>>::iterator find_data(uint64_t segment);
+
+    std::map<uint64_t, std::shared_ptr<ndn::Data>>::iterator end();
 };

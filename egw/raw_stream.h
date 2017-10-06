@@ -24,6 +24,7 @@ protected:
     std::atomic<bool> _aborted;
 
     std::stringstream _raw_data;
+    std::atomic<uint64_t> _total_read_bytes;
 
     std::mutex _mutex;
 
@@ -34,21 +35,23 @@ public:
 
     bool is_completed();
 
-    bool is_aborted();
-
     void is_completed(bool state);
 
+    bool is_aborted();
+
     void is_aborted(bool state);
+
+    uint64_t get_total_read_bytes();
 
     void append_raw_data_at_first(std::string data);
 
     void append_raw_data(const std::istream &stream);
 
+    void append_raw_data(std::streambuf *buffer);
+
     void append_raw_data(const char *buffer, size_t size);
 
     void append_raw_data(const std::string &data);
-
-    void append_raw_data(std::string &&data);
 
     bool has_remaining_bytes();
 

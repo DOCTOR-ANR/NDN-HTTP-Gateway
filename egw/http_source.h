@@ -12,30 +12,24 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include "ndn_message.h"
+#pragma once
 
-NdnMessage::NdnMessage() {
+#include <memory>
 
-}
+#include "http_sink.h"
+#include "http_request.h"
+#include "http_response.h"
 
-NdnMessage::NdnMessage(std::shared_ptr<RawStream> raw_stream) : Message(raw_stream) {
+class HttpSink;
 
-}
+class HttpSource {
+protected:
+    HttpSink *_http_sink;
 
-const ndn::Name& NdnMessage::get_name() const {
-    return _name;
-}
+public:
+    virtual void takeBack(std::shared_ptr<HttpRequest> http_request, std::shared_ptr<HttpResponse> http_response) = 0;
 
-const NdnMessage& NdnMessage::set_name(const ndn::Name &name) {
-    _name = name;
-    return *this;
-}
-
-const ndn::time::milliseconds& NdnMessage::get_freshness() const {
-    return _freshness;
-}
-
-const NdnMessage& NdnMessage::set_freshness(const ndn::time::milliseconds& freshness) {
-    _freshness = freshness;
-    return *this;
-}
+    void attachHttpSink(HttpSink *http_sink) {
+        _http_sink = http_sink;
+    }
+};

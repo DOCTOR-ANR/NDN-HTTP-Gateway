@@ -19,28 +19,29 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "global.h"
 #include "module.h"
 #include "http_sink.h"
+#include "http_source.h"
 #include "http_request.h"
 #include "http_response.h"
 
 class HttpClient : public Module, public HttpSink {
 private:
-    static boost::posix_time::seconds DEFAULT_TIMEOUT_READ_HTTP_HEADER;
-    static boost::posix_time::seconds DEFAULT_TIMEOUT_READ_HTTP_BODY;
-
     class HttpSession : public std::enable_shared_from_this<HttpSession> {
     private:
         HttpClient &_http_client;
         boost::asio::strand _strand;
         std::shared_ptr<boost::asio::ip::tcp::socket> _socket;
-        boost::asio::streambuf _buffer;
         std::shared_ptr<HttpRequest> _http_request;
+        char _write_buffer[global::DEFAULT_BUFFER_SIZE];
         boost::asio::deadline_timer _write_timer;
         std::shared_ptr<HttpResponse> _http_response;
+        boost::asio::streambuf _read_buffer;
         boost::asio::deadline_timer _read_timer;
+
+        boost::chrono::steady_clock::time_point _time_point;
 
     public:
         HttpSession(HttpClient &http_client, const std::shared_ptr<boost::asio::ip::tcp::socket> &socket,
-                    const std::shared_ptr<HttpRequest> &http_request, const std::shared_ptr<HttpResponse> &http_response);
+                    const std::shared_ptr<HttpRequest> &http_request);
 
         ~HttpSession();
 
@@ -62,7 +63,7 @@ private:
 
         void read_response_body_handler(const boost::system::error_code &err, size_t bytes_transferred, long remaining_bytes);
 
-        void read_response_body_chunk(long chunk_size = -1);
+        void read_response_body_chunk(long chunk_size);
 
         void read_response_body_chunk_handler(const boost::system::error_code &err, size_t bytes_transferred, long chunk_size);
 
@@ -75,6 +76,9 @@ private:
 
     boost::asio::ip::tcp::resolver _resolver;
 
+    boost::asio::deadline_timer _timer;
+
+    HttpSource *_http_source;
 public:
     HttpClient(size_t concurrency = 1);
 
@@ -82,17 +86,22 @@ public:
 
     virtual void run() override;
 
-    virtual void solve(std::shared_ptr<HttpRequest> http_request, std::shared_ptr<HttpResponse> http_response) override;
+    virtual void give(std::shared_ptr<HttpRequest> http_request) override;
 
-    void solve_handler(const std::shared_ptr<HttpRequest> &http_request, const std::shared_ptr<HttpResponse> &http_response);
+    void solve_handler(const std::shared_ptr<HttpRequest> &http_request);
 
-    void resolve(const std::shared_ptr<HttpRequest> &http_request, const std::shared_ptr<HttpResponse> &http_response);
+    void resolve(const std::shared_ptr<HttpRequest> &http_request);
 
     void resolve_handler(const boost::system::error_code &err, boost::asio::ip::tcp::resolver::iterator iterator,
-                         const std::shared_ptr<HttpRequest> &http_request, const std::shared_ptr<HttpResponse> &http_response);
+                         const std::shared_ptr<HttpRequest> &http_request);
 
-    void connect(boost::asio::ip::tcp::resolver::iterator iterator, const std::shared_ptr<HttpRequest> &http_request, const std::shared_ptr<HttpResponse> &http_response);
+    void connect(boost::asio::ip::tcp::resolver::iterator iterator, const std::shared_ptr<HttpRequest> &http_request);
 
     void connect_handler(const boost::system::error_code &err, boost::asio::ip::tcp::resolver::iterator iterator, std::shared_ptr<boost::asio::ip::tcp::socket> socket,
-                         const std::shared_ptr<HttpRequest> &http_request, const std::shared_ptr<HttpResponse> &http_response);
+                         const std::shared_ptr<HttpRequest> &http_request);
+
+    void timer_handler(const boost::system::error_code &err,
+                           const std::shared_ptr<boost::asio::ip::tcp::socket> &socket);
+
+    void attach_http_source(HttpSource *http_source);
 };

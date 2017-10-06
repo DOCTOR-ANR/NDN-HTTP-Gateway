@@ -17,10 +17,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <iostream>
 #include <csignal>
 
-#include "ndn_server.h"
-#include "ndn_client.h"
-#include "http_client.h"
+#include "ndn_resolver.h"
 #include "ndn_http_interpreter.h"
+#include "http_client.h"
 
 static bool stop = false;
 
@@ -43,31 +42,36 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    NdnServer ndn_server(prefix, 8);
-    NdnClient ndn_client;
-    NdnHttpInterpreter interpreter(4);
-    HttpClient http_client(8);
+    NdnResolver ndn_resolver(6);
+    NdnConsumerSubModule ndn_receiver(ndn_resolver);
+    NdnProducerSubModule ndn_sender(ndn_resolver, prefix);
+    NdnHttpInterpreter interpreter(8);
+    HttpClient http_client(12);
 
-    ndn_server.attach_ndn_sinks(&interpreter);
-    interpreter.attach_ndn_sinks(&ndn_client, &ndn_server);
-    interpreter.attach_http_sink(&http_client);
+    ndn_resolver.attachNdnSink(&interpreter);
+    interpreter.attachNdnSource(&ndn_resolver);
+    interpreter.attachHttpSink(&http_client);
+    http_client.attach_http_source(&interpreter);
 
-    ndn_server.start();
-    ndn_client.start();
+    ndn_resolver.start();
+    ndn_receiver.start();
+    ndn_sender.start();
     interpreter.start();
     http_client.start();
 
-    std::cerr << "HTTP/NDN egress gateway uses NDN prefix /http/" << std::endl;
+    std::cout << "HTTP/NDN egress gateway uses NDN prefix " << prefix << std::endl;
     signal(SIGINT, signal_handler);
 
     do {
         sleep(15);
     }while(!stop);
 
-    ndn_server.stop();
-    ndn_client.stop();
-    interpreter.stop();
     http_client.stop();
+    interpreter.stop();
+    ndn_sender.stop();
+    ndn_receiver.stop();
+    ndn_resolver.stop();
+
 
     return 0;
 }

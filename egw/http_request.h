@@ -39,7 +39,7 @@ private:
 public:
     HttpRequest();
 
-    HttpRequest(std::shared_ptr<RawStream> raw_stream);
+    HttpRequest(const std::shared_ptr<RawStream> &raw_stream);
 
     ~HttpRequest();
 
@@ -47,35 +47,35 @@ public:
 
     void is_parsed(bool parsed);
 
-    std::string get_method();
+    std::string get_method() ;
 
-    void set_method(std::string method);
+    void set_method(const std::string &method);
 
     std::string get_version();
 
-    void set_version(std::string version);
+    void set_version(const std::string &version);
 
     std::string get_path();
 
-    void set_path(std::string path);
+    void set_path(const std::string &path);
 
     std::string get_extension();
 
-    void set_extension(std::string extension);
+    void set_extension(const std::string &extension);
 
     std::string get_query();
 
-    void set_query(std::string query);
+    void set_query(const std::string &query);
 
     std::map<std::string, std::string> get_fields();
 
-    std::string get_field(std::string field);
+    std::string get_field(const std::string &field);
 
-    void set_field(std::string field, std::string value);
+    void set_field(const std::string &field, const std::string &value);
 
-    void unset_field(std::string field);
+    void unset_field(const std::string &field);
 
-    bool has_minimal_requirements();
+    bool has_minimal_requirements() ;
 
     std::string make_header();
 

@@ -6,19 +6,15 @@ set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2 -g -pipe")
 
 set(SOURCE_FILES main.cpp
-        global.h
-        module.h
-        raw_stream.cpp raw_stream.h
-        message.h
-        ndn_message.cpp ndn_message.h
-        ndn_server.cpp ndn_server.h
-        ndn_sink.h
-        ndn_client.cpp ndn_client.h
-        http_request.cpp http_request.h
-        http_response.cpp http_response.h
-        ndn_http_interpreter.cpp ndn_http_interpreter.h
-        http_sink.h
-        http_client.cpp http_client.h)
+        ndn_receiver.cpp
+        ndn_sender.cpp
+        ndn_resolver.cpp
+        ndn_http_interpreter.cpp
+        http_client.cpp
+        ndn_content.cpp
+        http_request.cpp
+        http_response.cpp
+        raw_stream.cpp)
 
 find_package(Boost COMPONENTS system thread REQUIRED)
 
