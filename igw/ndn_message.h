@@ -19,7 +19,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <memory>
 
 #include "message.h"
-#include "raw_stream.h"
+#include "seekable_raw_stream.h"
 
 class NdnMessage : public Message {
 private:
@@ -30,7 +30,7 @@ private:
 public:
     NdnMessage();
 
-    NdnMessage(std::shared_ptr<RawStream> raw_stream);
+    NdnMessage(const std::shared_ptr<SeekableRawStream> &raw_stream);
 
     const ndn::Name& get_name() const;
 

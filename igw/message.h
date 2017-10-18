@@ -15,27 +15,30 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #pragma once
 
 #include <memory>
+#include <atomic>
 
-#include "raw_stream.h"
+#include "seekable_raw_stream.h"
 
 class Message {
 protected:
-    std::shared_ptr<RawStream> _raw_stream;
+    std::shared_ptr<SeekableRawStream> _raw_stream;
 
 public:
-    Message() {
-        _raw_stream = std::make_shared<RawStream>();
-    }
-
-    Message(std::shared_ptr<RawStream> raw_stream) {
-        _raw_stream = raw_stream;
-    }
-
-    ~Message(){
+    Message() : _raw_stream(std::make_shared<SeekableRawStream>()) {
 
     }
 
-    std::shared_ptr<RawStream> get_raw_stream(){
+    explicit Message(const std::shared_ptr<SeekableRawStream> &raw_stream) : _raw_stream(raw_stream) {
+
+    }
+
+    virtual ~Message() = default;
+
+    const std::shared_ptr<SeekableRawStream>& getRawStream() const {
         return _raw_stream;
+    }
+
+    void setRawStream(const std::shared_ptr<SeekableRawStream> &raw_stream) {
+        _raw_stream = raw_stream;
     }
 };

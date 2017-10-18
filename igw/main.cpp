@@ -19,8 +19,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "http_server.h"
 #include "http_ndn_interpreter.h"
-#include "ndn_client.h"
-#include "ndn_server.h"
+#include "ndn_resolver.h"
+#include "ndn_receiver.h"
+#include "ndn_sender.h"
 
 static bool stop = false;
 
@@ -47,30 +48,35 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    HttpServer http_server(port, 8);
-    HttpNdnInterpreter interpreter(prefix, 4);
-    NdnClient ndn_client;
-    NdnServer ndn_server(prefix, 8);
+    HttpServer http_server(port, 4);
+    HttpNdnInterpreter interpreter(2);
+    NdnResolver ndn_resolver(prefix, 4);
+    NdnConsumerSubModule ndn_receiver(ndn_resolver);
+    NdnProducerSubModule ndn_sender(ndn_resolver, prefix);
 
-    http_server.attach_http_sink(&interpreter);
-    interpreter.attach_ndn_sinks(&ndn_client, &ndn_server);
+    http_server.attachHttpSink(&interpreter);
+    interpreter.attachHttpSource(&http_server);
+    interpreter.attachNdnSink(&ndn_resolver);
+    ndn_resolver.attachNdnSource(&interpreter);
 
     http_server.start();
     interpreter.start();
-    ndn_client.start();
-    ndn_server.start();
+    ndn_resolver.start();
+    ndn_receiver.start();
+    ndn_sender.start();
 
-    std::cerr << "HTTP/NDN ingress gateway listens on 0.0.0.0:" << port << " and uses NDN prefix " << prefix << std::endl;
+    std::cout << "HTTP/NDN ingress gateway listens on 0.0.0.0:" << port << " and uses NDN prefix " << prefix << std::endl;
     signal(SIGINT, signal_handler);
 
     do {
         sleep(15);
     }while(!stop);
 
+    ndn_receiver.stop();
+    ndn_sender.stop();
+    ndn_resolver.stop();
     http_server.stop();
     interpreter.stop();
-    ndn_client.stop();
-    ndn_server.stop();
 
     return 0;
 }

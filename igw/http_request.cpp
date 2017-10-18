@@ -16,15 +16,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include <sstream>
 
-HttpRequest::HttpRequest() : _parsed(false) {
-
-}
-
-HttpRequest::HttpRequest(std::shared_ptr<RawStream> raw_stream) : Message(raw_stream), _parsed(false) {
-
-}
-
-HttpRequest::~HttpRequest(){
+HttpRequest::HttpRequest(const std::shared_ptr<SeekableRawStream> &raw_stream) : Message(raw_stream), _parsed(false) {
 
 }
 
@@ -43,7 +35,7 @@ std::string HttpRequest::get_method() {
     return _method;
 }
 
-void HttpRequest::set_method(std::string method){
+void HttpRequest::set_method(const std::string &method){
     std::lock_guard<std::mutex> lock(_mutex);
     _method = method;
 }
@@ -53,7 +45,7 @@ std::string HttpRequest::get_version() {
     return _version;
 }
 
-void HttpRequest::set_version(std::string version){
+void HttpRequest::set_version(const std::string &version){
     std::lock_guard<std::mutex> lock(_mutex);
     _version = version;
 }
@@ -63,7 +55,7 @@ std::string HttpRequest::get_path() {
     return _path;
 }
 
-void HttpRequest::set_path(std::string path){
+void HttpRequest::set_path(const std::string &path){
     std::lock_guard<std::mutex> lock(_mutex);
     _path = path;
 }
@@ -73,7 +65,7 @@ std::string HttpRequest::get_extension() {
     return _extension;
 }
 
-void HttpRequest::set_extension(std::string extension) {
+void HttpRequest::set_extension(const std::string &extension) {
     std::lock_guard<std::mutex> lock(_mutex);
     _extension = extension;
 }
@@ -83,7 +75,7 @@ std::string HttpRequest::get_query() {
     return _query;
 }
 
-void HttpRequest::set_query(std::string query){
+void HttpRequest::set_query(const std::string &query){
     std::lock_guard<std::mutex> lock(_mutex);
     _query = query;
 }
@@ -93,18 +85,18 @@ std::map<std::string, std::string> HttpRequest::get_fields() {
     return _fields;
 };
 
-std::string HttpRequest::get_field(std::string field){
+std::string HttpRequest::get_field(const std::string &field) {
     std::lock_guard<std::mutex> lock(_mutex);
     auto it = _fields.find(field);
-    return it != _fields.end() ? it->second : "";
+    return it != _fields.end() ? it->second : std::string();
 }
 
-void HttpRequest::set_field(std::string field, std::string value) {
+void HttpRequest::set_field(const std::string &field, const std::string &value) {
     std::lock_guard<std::mutex> lock(_mutex);
     _fields[field] = value;
 }
 
-void HttpRequest::unset_field(std::string field) {
+void HttpRequest::unset_field(const std::string &field) {
     std::lock_guard<std::mutex> lock(_mutex);
     _fields.erase(field);
 }

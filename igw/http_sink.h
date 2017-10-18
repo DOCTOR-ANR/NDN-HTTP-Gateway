@@ -16,10 +16,20 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include <memory>
 
+#include "http_source.h"
 #include "http_request.h"
 #include "http_response.h"
 
+class HttpSource;
+
 class HttpSink {
+protected:
+    HttpSource *_http_source;
+
 public:
-    virtual void solve(std::shared_ptr<HttpRequest> http_request, std::shared_ptr<HttpResponse> http_response) = 0;
+    virtual void fromHttpSource(const std::shared_ptr<HttpRequest> &http_request) = 0;
+
+    void attachHttpSource(HttpSource *http_source) {
+        _http_source = http_source;
+    }
 };

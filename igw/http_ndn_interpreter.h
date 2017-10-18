@@ -19,38 +19,44 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <boost/thread.hpp>
 
 #include <memory>
-#include <set>
+#include <unordered_map>
+#include <unordered_set>
+#include <mutex>
 
 #include "global.h"
 #include "module.h"
 #include "http_sink.h"
-#include "ndn_sink.h"
+#include "ndn_source.h"
 #include "http_request.h"
 #include "http_response.h"
+#include "ndn_content.h"
 
-class HttpNdnInterpreter : public Module, public HttpSink {
+class HttpNdnInterpreter : public Module, public HttpSink, public NdnSource {
 private:
-    static const char SAFE[256];
-    static const std::set<std::string> STATIC_EXTENSIONS;
-
-    ndn::Name _prefix;
-
-    NdnSink *_ndn_client;
-    NdnSink *_ndn_server;
+    // mandatory, ndn-cxx lib throws exception when it sends burst of interest with same name
+    std::mutex _mutex;
+    std::map<std::string, std::unordered_set<std::shared_ptr<HttpRequest>>> _pending_requests;
 
 public:
-    HttpNdnInterpreter(ndn::Name prefix, size_t concurrency = 1);
+    explicit HttpNdnInterpreter(size_t concurrency = 1);
 
-    virtual void run() override;
+    ~HttpNdnInterpreter() override = default;
 
-    virtual void solve(std::shared_ptr<HttpRequest> http_request, std::shared_ptr<HttpResponse> http_response) override;
+    void run() override;
 
-    void resolve_handler(const std::shared_ptr<HttpRequest> &http_request, const std::shared_ptr<HttpResponse> &http_response);
+    void fromHttpSource(const std::shared_ptr<HttpRequest> &http_request) override;
 
-    std::string uri_encode(const std::string &sSrc);
+    void fromNdnSink(const std::shared_ptr<NdnContent> &content) override;
 
-    void compute_names(const std::shared_ptr<HttpRequest> &http_request, const std::shared_ptr<NdnMessage> &ndn_client_message,
-                       const std::shared_ptr<NdnMessage> &ndn_server_message, const std::shared_ptr<boost::asio::deadline_timer> &timer);
+private:
+    void fromHttpSourceHandler(const std::shared_ptr<HttpRequest> &http_request);
 
-    void attach_ndn_sinks(NdnSink *ndn_client, NdnSink *ndn_server);
+    void fromNdnSinkHandler(const std::shared_ptr<NdnContent> &content);
+
+    void computeNames(const std::shared_ptr<HttpRequest> &http_request,
+                      const std::shared_ptr<boost::asio::deadline_timer> &timer);
+
+    void getHttpResponseHeader(const std::string &sha1,
+                               const std::shared_ptr<HttpResponse> &http_response,
+                               const std::shared_ptr<boost::asio::deadline_timer> &timer);
 };

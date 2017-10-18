@@ -18,7 +18,14 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "sha1.h"
 
-const char HttpNdnInterpreter::SAFE[256] = {
+static const std::set<std::string> STATIC_EXTENSIONS {
+        ".css", ".js", ".jpg", ".jpeg", ".gif", ".ico", ".png", ".bmp", ".pict", ".csv", ".doc", ".pdf", ".pls", ".ppt",
+        ".tif", ".tiff", ".eps", ".ejs", ".swf", ".midi", ".mid", ".ttf", ".eot", ".woff", ".woff2", ".otf", ".svg",
+        ".svgz", ".webp", ".docx", ".xlsx", ".xls", ".pptx", ".ps", ".class", ".jar"
+};
+
+
+static const char SAFE[256] {
 /*      0 1 2 3  4 5 6 7  8 9 A B  C D E F */
 /* 0 */ 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0,
 /* 1 */ 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0,
@@ -41,35 +48,7 @@ const char HttpNdnInterpreter::SAFE[256] = {
 /* F */ 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0
 };
 
-const std::set<std::string> HttpNdnInterpreter::STATIC_EXTENSIONS = {
-        ".css", ".js", ".jpg", ".jpeg", ".gif", ".ico", ".png", ".bmp", ".pict", ".csv", ".doc", ".pdf", ".pls", ".ppt",
-        ".tif", ".tiff", ".eps", ".ejs", ".swf", ".midi", ".mid", ".ttf", ".eot", ".woff", ".woff2", ".otf", ".svg", ".svgz"
-        ".webp", ".docx", ".xlsx", ".xls", ".pptx", ".ps", ".class", ".jar"
-};
-
-HttpNdnInterpreter::HttpNdnInterpreter(ndn::Name prefix, size_t concurrency)
-        : Module(concurrency)
-        , _prefix(prefix) {
-
-}
-
-void HttpNdnInterpreter::run() {
-
-}
-
-void HttpNdnInterpreter::solve(std::shared_ptr<HttpRequest> http_request, std::shared_ptr<HttpResponse> http_response) {
-    _ios.post(boost::bind(&HttpNdnInterpreter::resolve_handler, this, http_request, http_response));
-}
-
-void HttpNdnInterpreter::resolve_handler(const std::shared_ptr<HttpRequest> &http_request, const std::shared_ptr<HttpResponse> &http_response) {
-    auto ndn_client_message = std::make_shared<NdnMessage>(http_response->get_raw_stream());
-    auto ndn_server_message = std::make_shared<NdnMessage>(http_request->get_raw_stream());
-
-    auto timer = std::make_shared<boost::asio::deadline_timer>(_ios);
-    _ios.post(boost::bind(&HttpNdnInterpreter::compute_names, this, http_request, ndn_client_message, ndn_server_message, timer));
-}
-
-std::string HttpNdnInterpreter::uri_encode(const std::string & sSrc){
+static std::string uri_encode(const std::string & sSrc){
     const char DEC2HEX[16 + 1] = "0123456789ABCDEF";
     const unsigned char * pSrc = (const unsigned char *)sSrc.c_str();
     const int SRC_LEN = sSrc.length();
@@ -90,63 +69,192 @@ std::string HttpNdnInterpreter::uri_encode(const std::string & sSrc){
     return sResult;
 }
 
-void HttpNdnInterpreter::compute_names(const std::shared_ptr<HttpRequest> &http_request, const std::shared_ptr<NdnMessage> &ndn_client_message,
-                                  const std::shared_ptr<NdnMessage> &ndn_server_message, const std::shared_ptr<boost::asio::deadline_timer> &timer) {
-    if(http_request->is_parsed()) {
-        /*auto delimiter = http_request->get_field("accept-encoding").find("sdch");
-        if(delimiter != std::string::npos){
-            http_request->set_field("accept-encoding", http_request->get_field("accept-encoding").substr(delimiter, 4));
-        }*/
-        http_request->add_header_to_raw_stream();
-        if (STATIC_EXTENSIONS.find(http_request->get_extension()) != STATIC_EXTENSIONS.end()) {
-            http_request->unset_field("user-agent");
-            http_request->unset_field("accept");
-            http_request->unset_field("accept-language");
-        }
+HttpNdnInterpreter::HttpNdnInterpreter(size_t concurrency)
+        : Module(concurrency) {
 
-        SHA1 sha1;
-        ndn_server_message->set_name(ndn::Name(_prefix).append(sha1(http_request->make_header())));
-        _ndn_server->solve(ndn_server_message);
+}
 
-        ndn::Name name("http");
-        //tokenize domain
-        std::string host = http_request->get_field("host");
-        auto host_it = host.find(':');
-        std::stringstream domain(host_it != std::string::npos ? host.substr(0, host_it) : host);
-        std::string domain_token;
-        std::vector<std::string> domain_tokens;
-        while (std::getline(domain, domain_token, '.')) {
-            domain_tokens.emplace_back(domain_token);
-        }
-        auto domain_it = domain_tokens.rbegin();
-        while (domain_it != domain_tokens.rend()) {
-            name.append(*domain_it++);
-        }
+void HttpNdnInterpreter::run() {
 
-        //tokenize path
-        std::stringstream path(http_request->get_path());
-        std::string path_token;
-        std::vector<std::string> path_tokens;
-        while (std::getline(path, path_token, '/')) {
-            if (!path_token.empty()) {
-                path_tokens.emplace_back(path_token);
+}
+
+void HttpNdnInterpreter::fromHttpSource(const std::shared_ptr<HttpRequest> &http_request) {
+    _ios.post(boost::bind(&HttpNdnInterpreter::fromHttpSourceHandler, this, http_request));
+}
+
+void HttpNdnInterpreter::fromNdnSink(const std::shared_ptr<NdnContent> &content) {
+    _ios.post(boost::bind(&HttpNdnInterpreter::fromNdnSinkHandler, this, content));
+}
+
+void HttpNdnInterpreter::fromHttpSourceHandler(const std::shared_ptr<HttpRequest> &http_request) {
+    auto timer = std::make_shared<boost::asio::deadline_timer>(_ios);
+    computeNames(http_request, timer);
+}
+
+void HttpNdnInterpreter::fromNdnSinkHandler(const std::shared_ptr<NdnContent> &content) {
+    auto http_response = std::make_shared<HttpResponse>(content->getRawStream());
+    auto timer = std::make_shared<boost::asio::deadline_timer>(_ios);
+    getHttpResponseHeader(content->getName().get(-1).toUri(), http_response, timer);
+}
+
+void HttpNdnInterpreter::computeNames(const std::shared_ptr<HttpRequest> &http_request,
+                                      const std::shared_ptr<boost::asio::deadline_timer> &timer) {
+    if(!http_request->getRawStream()->is_aborted()) {
+        if (http_request->is_parsed() && (http_request->getRawStream()->is_completed() ||
+                http_request->getRawStream()->raw_data_as_string().size() >= 1024)) {
+            auto delimiter = http_request->get_field("accept-encoding").find(", sdch");
+            if (delimiter != std::string::npos) {
+                http_request->set_field("accept-encoding", http_request->get_field("accept-encoding").substr(delimiter, 6));
             }
-        }
-        auto path_it = path_tokens.begin();
-        while (path_it != path_tokens.end()) {
-            name.append(uri_encode(*path_it++));
-        }
 
-        //add prefix of igw
-        ndn_client_message->set_name(name.appendVersion(0).append(_prefix).append(sha1(http_request->make_header())));
-        _ndn_client->solve(ndn_client_message);
-    } else {
-        timer->expires_from_now(global::DEFAULT_WAIT_REDO);
-        _ios.post(boost::bind(&HttpNdnInterpreter::compute_names, this, http_request, ndn_client_message, ndn_server_message, timer));
+            if(!http_request->get_field("proxy-connection").empty()) {
+                http_request->set_field("connection", http_request->get_field("proxy-connection"));
+                http_request->unset_field("proxy-connection");
+            }
+
+            std::string body = http_request->getRawStream()->raw_data_as_string().substr(0, 1024);
+            http_request->add_header_to_raw_stream();
+            if (STATIC_EXTENSIONS.find(http_request->get_extension()) != STATIC_EXTENSIONS.end()) {
+                http_request->unset_field("user-agent");
+                http_request->unset_field("accept");
+                http_request->unset_field("accept-language");
+                http_request->unset_field("cookie");
+            }
+
+            std::string sha1 = SHA1{}(http_request->make_header() + body);
+
+
+            { // block for RAII
+                std::lock_guard<std::mutex> lock(_mutex);
+                auto it = _pending_requests.find(sha1);
+                if (it == _pending_requests.end()) {
+                    _pending_requests.emplace(sha1, std::unordered_set<std::shared_ptr<HttpRequest>>{http_request});
+                } else {
+                    it->second.insert(http_request);
+                    //std::cout << http_request->get_field("host") << http_request->get_path()
+                    //          << " (" << sha1 << ") count = " << it->second.size() << std::endl;
+                    return;
+                }
+            }
+
+            ndn::Name name("http");
+            // tokenize domain
+            std::string host = http_request->get_field("host");
+            auto host_it = host.find(':');
+            std::stringstream domain(host_it != std::string::npos ? host.substr(0, host_it) : host);
+            std::string domain_token;
+            std::vector<std::string> domain_tokens;
+            while (std::getline(domain, domain_token, '.')) {
+                domain_tokens.emplace_back(domain_token);
+            }
+            auto domain_it = domain_tokens.rbegin();
+            while (domain_it != domain_tokens.rend()) {
+                name.append(*domain_it++);
+            }
+
+            // tokenize path
+            std::stringstream path(http_request->get_path());
+            std::string path_token;
+            std::vector<std::string> path_tokens;
+            while (std::getline(path, path_token, '/')) {
+                if (!path_token.empty() && (path_token != "." && path_token != "..")) {
+                    path_tokens.emplace_back(path_token);
+                }
+            }
+            auto path_it = path_tokens.begin();
+            while (path_it != path_tokens.end()) {
+                name.append(uri_encode(*path_it++));
+            }
+
+            name.append(sha1);
+
+            auto ndn_content = std::make_shared<NdnContent>(http_request->getRawStream());
+            ndn_content->setName(name);
+            _ndn_sink->fromNdnSource(ndn_content);
+        } else {
+            timer->expires_from_now(global::DEFAULT_WAIT_REDO);
+            timer->async_wait(boost::bind(&HttpNdnInterpreter::computeNames, this, http_request, timer));
+        }
     }
 }
 
-void HttpNdnInterpreter::attach_ndn_sinks(NdnSink *ndn_client, NdnSink *ndn_server) {
-    _ndn_client = ndn_client;
-    _ndn_server = ndn_server;
+void HttpNdnInterpreter::getHttpResponseHeader(const std::string &sha1,
+                                               const std::shared_ptr<HttpResponse> &http_response,
+                                               const std::shared_ptr<boost::asio::deadline_timer> &timer) {
+    if(!http_response->getRawStream()->is_aborted()) {
+        // keep track of completion before doing the job because if set to true and no HTTP header found then discard
+        bool is_complete = http_response->getRawStream()->is_completed();
+
+        std::string raw_data = http_response->getRawStream()->raw_data_as_string();
+        size_t delimiter_index = raw_data.find("\r\n\r\n");
+        if (delimiter_index != std::string::npos) {
+            http_response->getRawStream()->removeFirstBytes(delimiter_index + 4);
+            std::stringstream header(raw_data);
+            std::string header_line;
+
+            std::getline(header, header_line);
+            if ((delimiter_index = header_line.find(' ')) != std::string::npos) {
+                http_response->set_version(header_line.substr(0, delimiter_index));
+                size_t last_delimiter_index = delimiter_index + 1;
+                if ((delimiter_index = header_line.find(' ', last_delimiter_index)) != std::string::npos) {
+                    http_response->set_status_code(header_line.substr(last_delimiter_index, delimiter_index - last_delimiter_index));
+                    last_delimiter_index = delimiter_index + 1;
+                    if ((delimiter_index = header_line.find('\r', last_delimiter_index)) != std::string::npos) {
+                        http_response->set_reason(header_line.substr(last_delimiter_index, delimiter_index - last_delimiter_index));
+                    } else {
+                        http_response->getRawStream()->is_aborted(true);
+                        std::lock_guard<std::mutex> lock(_mutex);
+                        _pending_requests.erase(sha1);
+                        return;
+                    }
+                } else {
+                    http_response->getRawStream()->is_aborted(true);
+                    std::lock_guard<std::mutex> lock(_mutex);
+                    _pending_requests.erase(sha1);
+                    return;
+                }
+            } else {
+                http_response->getRawStream()->is_aborted(true);
+                std::lock_guard<std::mutex> lock(_mutex);
+                _pending_requests.erase(sha1);
+                return;
+            }
+
+            std::getline(header, header_line);
+            while ((delimiter_index = header_line.find(':')) != std::string::npos) {
+                std::string name = header_line.substr(0, delimiter_index);
+                std::transform(name.begin(), name.end(), name.begin(), ::tolower);
+                std::string value = header_line.substr(delimiter_index + 1, header_line.size() - delimiter_index - 2);
+                value.erase(0, value.find_first_not_of(' '));
+                http_response->set_field(name, value);
+                std::getline(header, header_line);
+            }
+
+            if (http_response->has_minimal_requirements()) {
+                http_response->is_parsed(true);
+                std::unordered_set<std::shared_ptr<HttpRequest>> set;
+                { // block for RAII
+                    std::lock_guard<std::mutex> lock(_mutex);
+                    set = std::move(_pending_requests.at(sha1));
+                    _pending_requests.erase(sha1);
+                }
+                for (const auto& req : set) {
+                    _http_source->fromHttpSink(req, http_response);
+                }
+            } else {
+                http_response->getRawStream()->is_aborted(true);
+                std::lock_guard<std::mutex> lock(_mutex);
+                _pending_requests.erase(sha1);
+            }
+        } else if (!is_complete) {
+            timer->expires_from_now(global::DEFAULT_WAIT_REDO);
+            timer->async_wait(boost::bind(&HttpNdnInterpreter::getHttpResponseHeader, this, sha1, http_response, timer));
+        } else {
+            std::lock_guard<std::mutex> lock(_mutex);
+            _pending_requests.erase(sha1);
+        }
+    } else {
+        std::lock_guard<std::mutex> lock(_mutex);
+        _pending_requests.erase(sha1);
+    }
 }

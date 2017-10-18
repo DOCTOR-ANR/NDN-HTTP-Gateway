@@ -17,6 +17,11 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <boost/asio.hpp>
 
 namespace global {
-    const boost::posix_time::milliseconds DEFAULT_WAIT_REDO = boost::posix_time::milliseconds(10);
+    const boost::posix_time::milliseconds DEFAULT_WAIT_REDO {5};
+    const boost::posix_time::seconds DEFAULT_WAIT_PURGE {60};
+    const boost::posix_time::seconds DEFAULT_TIMEOUT {10};
+    const boost::posix_time::seconds DEFAULT_TIMEOUT_CONNECT {2};
+    const boost::posix_time::seconds DEFAULT_TIMEOUT_READ_HTTP_HEADER {4};
+    const boost::posix_time::seconds DEFAULT_TIMEOUT_READ_HTTP_BODY {2};
     const uint32_t DEFAULT_BUFFER_SIZE = 4096;
 };

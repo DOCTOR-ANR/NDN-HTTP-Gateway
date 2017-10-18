@@ -17,19 +17,11 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <iostream>
 #include <sstream>
 
-HttpResponse::HttpResponse() : _parsed(false) {
+HttpResponse::HttpResponse(std::shared_ptr<SeekableRawStream> raw_stream) : Message(raw_stream), _parsed(false) {
 
 }
 
-HttpResponse::HttpResponse(std::shared_ptr<RawStream> raw_stream) : Message(raw_stream), _parsed(false) {
-
-}
-
-HttpResponse::~HttpResponse() {
-
-}
-
-bool HttpResponse::is_parsed() const {
+bool HttpResponse::is_parsed() {
     return _parsed;
 }
 
@@ -42,7 +34,7 @@ std::string HttpResponse::get_version() {
     return _version;
 }
 
-void HttpResponse::set_version(std::string version) {
+void HttpResponse::set_version(const std::string &version) {
     _version = version;
 }
 
@@ -51,7 +43,7 @@ std::string HttpResponse::get_status_code() {
     return _status_code;
 }
 
-void HttpResponse::set_status_code(std::string status_code) {
+void HttpResponse::set_status_code(const std::string &status_code) {
     std::lock_guard<std::mutex> lock(_mutex);
     _status_code = status_code;
 }
@@ -61,7 +53,7 @@ std::string HttpResponse::get_reason() {
     return _reason;
 }
 
-void HttpResponse::set_reason(std::string reason) {
+void HttpResponse::set_reason(const std::string &reason) {
     std::lock_guard<std::mutex> lock(_mutex);
     _reason = reason;
 }
@@ -71,18 +63,18 @@ std::map<std::string, std::string> HttpResponse::get_fields() {
     return _fields;
 };
 
-std::string HttpResponse::get_field(std::string field){
+std::string HttpResponse::get_field(const std::string &field) {
     std::lock_guard<std::mutex> lock(_mutex);
     auto it = _fields.find(field);
     return it != _fields.end() ? it->second : "";
 }
 
-void HttpResponse::set_field(std::string field, std::string value) {
+void HttpResponse::set_field(const std::string &field, const std::string &value) {
     std::lock_guard<std::mutex> lock(_mutex);
     _fields[field] = value;
 }
 
-void HttpResponse::unset_field(std::string field) {
+void HttpResponse::unset_field(const std::string &field) {
     std::lock_guard<std::mutex> lock(_mutex);
     _fields.erase(field);
 }

@@ -30,6 +30,8 @@ public:
 
     }
 
+    virtual ~Module() = default;
+
     void start() {
         for (int i = 0; i < _concurrency; ++i) {
             _thread_pool.create_thread(boost::bind(&boost::asio::io_service::run, &_ios));
@@ -44,7 +46,7 @@ public:
 
     virtual void run() = 0;
 
-    boost::asio::io_service& get_io_service() {
+    const boost::asio::io_service& get_io_service() const {
         return _ios;
     }
 };

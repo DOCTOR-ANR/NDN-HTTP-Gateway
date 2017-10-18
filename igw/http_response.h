@@ -21,11 +21,11 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <map>
 
 #include "message.h"
-#include "raw_stream.h"
+#include "seekable_raw_stream.h"
 
 class HttpResponse : public Message {
 private:
-    std::atomic<bool> _parsed;
+    std::atomic<bool> _parsed {false};
 
     std::mutex _mutex;
 
@@ -35,35 +35,35 @@ private:
     std::map<std::string, std::string> _fields;
 
 public:
-    HttpResponse();
+    HttpResponse() = default;
 
-    HttpResponse(std::shared_ptr<RawStream> raw_stream);
+    explicit HttpResponse(std::shared_ptr<SeekableRawStream> raw_stream);
 
-    ~HttpResponse();
+    ~HttpResponse() override = default;
 
-    bool is_parsed() const;
+    bool is_parsed();
 
     void is_parsed(bool parsed);
 
     std::string get_version();
 
-    void set_version(std::string version);
+    void set_version(const std::string &version);
 
     std::string get_status_code();
 
-    void set_status_code(std::string status_code);
+    void set_status_code(const std::string &status_code);
 
     std::string get_reason();
 
-    void set_reason(std::string reason);
+    void set_reason(const std::string &reason);
 
     std::map<std::string, std::string> get_fields();
 
-    std::string get_field(std::string field);
+    std::string get_field(const std::string &field);
 
-    void set_field(std::string field, std::string value);
+    void set_field(const std::string &field, const std::string &value);
 
-    void unset_field(std::string field);
+    void unset_field(const std::string &field);
 
     bool has_minimal_requirements();
 

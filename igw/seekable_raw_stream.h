@@ -15,46 +15,45 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #pragma once
 
 #include <atomic>
-#include <sstream>
+#include <deque>
 #include <mutex>
 
-class RawStream {
+class SeekableRawStream {
 protected:
-    std::atomic<bool> _completed;
-    std::atomic<bool> _aborted;
-
-    std::stringstream _raw_data;
+    std::atomic<bool> _completed {false};
+    std::atomic<bool> _aborted {false};
 
     std::mutex _mutex;
+    std::deque<char> _raw_data;
 
 public:
-    RawStream();
+    SeekableRawStream() = default;
 
-    ~RawStream();
+    ~SeekableRawStream() = default;
 
     bool is_completed();
 
-    bool is_aborted();
-
     void is_completed(bool state);
+
+    bool is_aborted();
 
     void is_aborted(bool state);
 
-    void append_raw_data_at_first(std::string data);
+    void append_raw_data_at_first(const std::string &data);
 
     void append_raw_data(const std::istream &stream);
+
+    void append_raw_data(std::streambuf *buffer);
 
     void append_raw_data(const char *buffer, size_t size);
 
     void append_raw_data(const std::string &data);
 
-    void append_raw_data(std::string &&data);
+    long readRawData(size_t pos, char *buffer, size_t size);
 
-    bool has_remaining_bytes();
+    void removeFirstBytes(size_t size);
 
-    long read_raw_data(char *buffer, size_t size);
-
-    void remove_first_bytes(size_t size);
+    long remainingBytes(size_t pos);
 
     std::string raw_data_as_string();
 };
