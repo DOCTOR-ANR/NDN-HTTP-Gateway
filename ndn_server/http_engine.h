@@ -14,11 +14,29 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #pragma once
 
-#include <ndn-cxx/data.hpp>
-
 #include <memory>
 
-class NdnProducer {
+#include "global.h"
+#include "module.h"
+#include "http_sink.h"
+#include "http_request.h"
+#include "http_response.h"
+
+class HttpEngine : public Module, public HttpSink {
+private:
+    std::map<std::string, std::string> _mime_types;
+
 public:
-    virtual void publish(const std::shared_ptr<ndn::Data> &content) = 0;
+    HttpEngine(size_t concurrency = 1);
+
+    ~HttpEngine() = default;
+
+private:
+    void run() override;
+
+    void fromHttpSource(const std::shared_ptr<HttpRequest> &http_request) override;
+
+    void resolve(const std::shared_ptr<HttpRequest> &http_request);
+
+    std::shared_ptr<HttpResponse> get(const std::shared_ptr<HttpRequest> &http_request, const std::shared_ptr<HttpResponse> &http_response, bool skip_body = false);
 };

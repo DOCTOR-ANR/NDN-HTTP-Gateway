@@ -1,5 +1,5 @@
 /*
-Copyright (C) 2015-2017  Xavier MARCHAL
+Copyright (C) 2015-2018  Xavier MARCHAL
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
 the Free Software Foundation, either version 3 of the License, or
@@ -15,23 +15,21 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #pragma once
 
 #include <atomic>
-#include <sstream>
+#include <deque>
 #include <mutex>
 
-class RawStream {
+class SeekableRawStream {
 protected:
-    std::atomic<bool> _completed;
-    std::atomic<bool> _aborted;
-
-    std::stringstream _raw_data;
-    std::atomic<uint64_t> _total_read_bytes;
+    std::atomic<bool> _completed {false};
+    std::atomic<bool> _aborted {false};
 
     std::mutex _mutex;
+    std::deque<char> _raw_data;
 
 public:
-    RawStream();
+    SeekableRawStream() = default;
 
-    ~RawStream();
+    ~SeekableRawStream() = default;
 
     bool is_completed();
 
@@ -41,9 +39,7 @@ public:
 
     void is_aborted(bool state);
 
-    uint64_t get_total_read_bytes();
-
-    void append_raw_data_at_first(std::string data);
+    void append_raw_data_at_first(const std::string &data);
 
     void append_raw_data(const std::istream &stream);
 
@@ -53,11 +49,11 @@ public:
 
     void append_raw_data(const std::string &data);
 
-    bool has_remaining_bytes();
+    long readRawData(size_t pos, char *buffer, size_t size);
 
-    long read_raw_data(char *buffer, size_t size);
+    void removeFirstBytes(size_t size);
 
-    void remove_first_bytes(size_t size);
+    long remainingBytes(size_t pos);
 
     std::string raw_data_as_string();
 };

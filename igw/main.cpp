@@ -1,5 +1,5 @@
 /*
-Copyright (C) 2015-2017  Xavier MARCHAL
+Copyright (C) 2015-2018  Xavier MARCHAL
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
 the Free Software Foundation, either version 3 of the License, or
@@ -48,6 +48,8 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    std::cout << "HTTP/NDN ingress gateway v1.1-2" << std::endl;
+
     HttpServer http_server(port, 4);
     HttpNdnInterpreter interpreter(2);
     NdnResolver ndn_resolver(prefix, 4);
@@ -65,7 +67,7 @@ int main(int argc, char *argv[]) {
     ndn_receiver.start();
     ndn_sender.start();
 
-    std::cout << "HTTP/NDN ingress gateway listens on 0.0.0.0:" << port << " and uses NDN prefix " << prefix << std::endl;
+    std::cout << "listens on 0.0.0.0:" << port << " and registered as " << prefix << std::endl;
     signal(SIGINT, signal_handler);
 
     do {

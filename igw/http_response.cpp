@@ -1,5 +1,5 @@
 /*
-Copyright (C) 2015-2017  Xavier MARCHAL
+Copyright (C) 2015-2018  Xavier MARCHAL
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
 the Free Software Foundation, either version 3 of the License, or
@@ -81,7 +81,7 @@ void HttpResponse::unset_field(const std::string &field) {
 
 bool HttpResponse::has_minimal_requirements() {
     std::lock_guard<std::mutex> lock(_mutex);
-    return !(_version.empty() | _status_code.empty() | _reason.empty());
+    return !(_version.empty() | _status_code.empty());
 }
 
 std::string HttpResponse::make_header() {

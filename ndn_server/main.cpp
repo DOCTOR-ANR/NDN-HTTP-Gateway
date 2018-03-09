@@ -19,7 +19,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "ndn_resolver.h"
 #include "ndn_http_interpreter.h"
-#include "http_client.h"
+#include "http_engine.h"
 
 static bool stop = false;
 
@@ -28,7 +28,7 @@ static void signal_handler(int signum) {
 }
 
 int main(int argc, char *argv[]) {
-    ndn::Name prefix("/http");
+    ndn::Name prefix("/http/ndn/server/www");
 
     for(int i = 1; i < argc; ++i){
         switch (argv[i][1]){
@@ -42,24 +42,24 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    std::cout << "HTTP/NDN egress gateway v1.1-2" << std::endl;
+    std::cout << "HTTP/NDN server v1.1-2" << std::endl;
 
     NdnResolver ndn_resolver(4);
     NdnConsumerSubModule ndn_receiver(ndn_resolver);
     NdnProducerSubModule ndn_sender(ndn_resolver, prefix);
     NdnHttpInterpreter interpreter(2);
-    HttpClient http_client(4);
+    HttpEngine engine;
 
     ndn_resolver.attachNdnSink(&interpreter);
     interpreter.attachNdnSource(&ndn_resolver);
-    interpreter.attachHttpSink(&http_client);
-    http_client.attachHttpSource(&interpreter);
+    interpreter.attachHttpSink(&engine);
+    engine.attachHttpSource(&interpreter);
 
     ndn_resolver.start();
     ndn_receiver.start();
     ndn_sender.start();
     interpreter.start();
-    http_client.start();
+    engine.start();
 
     std::cout << "registered as " << prefix << std::endl;
     signal(SIGINT, signal_handler);
@@ -68,7 +68,7 @@ int main(int argc, char *argv[]) {
         sleep(15);
     }while(!stop);
 
-    http_client.stop();
+    engine.stop();
     interpreter.stop();
     ndn_sender.stop();
     ndn_receiver.stop();

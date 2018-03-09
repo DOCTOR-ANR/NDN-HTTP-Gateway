@@ -1,5 +1,5 @@
 /*
-Copyright (C) 2015-2017  Xavier MARCHAL
+Copyright (C) 2015-2018  Xavier MARCHAL
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
 the Free Software Foundation, either version 3 of the License, or
@@ -59,5 +59,5 @@ public:
 
     std::map<uint64_t, std::shared_ptr<ndn::Data>>::iterator end();
 
-    size_t currentSegmentCount();
+    size_t SegmentCount();
 };

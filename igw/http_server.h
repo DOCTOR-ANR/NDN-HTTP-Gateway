@@ -1,5 +1,5 @@
 /*
-Copyright (C) 2015-2017  Xavier MARCHAL
+Copyright (C) 2015-2018  Xavier MARCHAL
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
 the Free Software Foundation, either version 3 of the License, or
@@ -21,6 +21,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <unordered_map>
 #include <fstream>
 #include <chrono>
+#include <atomic>
 
 #include "global.h"
 #include "module.h"
@@ -32,12 +33,16 @@ class HttpServer : public Module, public HttpSource {
 private:
     class HttpSession : public std::enable_shared_from_this<HttpSession> {
     private:
+#ifndef NDEBUG
+        static std::atomic<size_t> count;
+#endif
+
         HttpServer &_http_server;
 
         boost::asio::strand _strand;
         boost::asio::deadline_timer _read_timer;
         boost::asio::deadline_timer _write_timer;
-        std::shared_ptr<boost::asio::ip::tcp::socket> _socket;
+        boost::asio::ip::tcp::socket _socket;
         boost::asio::streambuf _read_buffer;
         char _write_buffer[global::DEFAULT_BUFFER_SIZE];
 
@@ -47,9 +52,9 @@ private:
         std::chrono::steady_clock::time_point _start;
 
     public:
-        HttpSession(HttpServer &http_server, const std::shared_ptr<boost::asio::ip::tcp::socket> &socket);
+        HttpSession(HttpServer &http_server, boost::asio::ip::tcp::socket &&socket);
 
-        ~HttpSession() = default;
+        ~HttpSession();
 
         void setHttpResponse(const std::shared_ptr<HttpResponse> &http_response);
 
@@ -85,9 +90,10 @@ private:
     };
 
     std::mutex _map_mutex;
-    std::unordered_map<std::shared_ptr<HttpRequest>, std::shared_ptr<HttpSession>> _waiting_sessions;
+    std::unordered_map<std::shared_ptr<HttpRequest>, std::weak_ptr<HttpSession>> _waiting_sessions;
 
     boost::asio::ip::tcp::acceptor _acceptor;
+    boost::asio::ip::tcp::socket _acceptor_socket;
 
     std::mutex _file_mutex;
     std::ofstream _file;
@@ -106,7 +112,7 @@ public:
 
     void log(const std::string &line);
 private:
-    void accept_handler(const boost::system::error_code &err, const std::shared_ptr<boost::asio::ip::tcp::socket> &socket);
+    void accept_handler(const boost::system::error_code &err);
 
     void fromHttpSinkHandler(const std::shared_ptr<HttpRequest> &http_request, const std::shared_ptr<HttpResponse> &http_response);
 };

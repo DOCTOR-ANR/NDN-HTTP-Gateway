@@ -1,5 +1,5 @@
 /*
-Copyright (C) 2015-2017  Xavier MARCHAL
+Copyright (C) 2015-2018  Xavier MARCHAL
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
 the Free Software Foundation, either version 3 of the License, or
@@ -12,30 +12,13 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include "ndn_message.h"
+#pragma once
 
-NdnMessage::NdnMessage() {
+#include <ndn-cxx/data.hpp>
 
-}
+#include <memory>
 
-NdnMessage::NdnMessage(const std::shared_ptr<SeekableRawStream> &raw_stream) : Message(raw_stream) {
-
-}
-
-const ndn::Name& NdnMessage::get_name() const {
-    return _name;
-}
-
-const NdnMessage& NdnMessage::set_name(const ndn::Name &name) {
-    _name = name;
-    return *this;
-}
-
-const ndn::time::milliseconds& NdnMessage::get_freshness() const {
-    return _freshness;
-}
-
-const NdnMessage& NdnMessage::set_freshness(const ndn::time::milliseconds& freshness) {
-    _freshness = freshness;
-    return *this;
-}
+class NdnProducer {
+public:
+    virtual void publish(const std::shared_ptr<ndn::Data> &content) = 0;
+};

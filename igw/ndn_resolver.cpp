@@ -1,3 +1,17 @@
+/*
+Copyright (C) 2015-2018  Xavier MARCHAL
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*/
+
 #include "ndn_resolver.h"
 
 NdnResolver::NdnResolver(const ndn::Name &prefix, size_t concurrency)
@@ -36,7 +50,7 @@ void NdnResolver::fromNdnConsumerHandler(const std::shared_ptr<NdnContent> &cont
         ndn::Name name(content->getName().getPrefix(-2));
         name.append(content->getName().get(-1));
 
-        if (content->getRawStream()->raw_data_as_string() == "0") {
+        if (content->getRawStream()->raw_data_as_string() == "OK") {
             std::shared_ptr<NdnContent> request;
             { // block for RAII
                 std::lock_guard<std::mutex> lock(_contents_mutex);
@@ -45,12 +59,12 @@ void NdnResolver::fromNdnConsumerHandler(const std::shared_ptr<NdnContent> &cont
                     request = it->second;
                 }
             }
-            if (request && request->currentSegmentCount() > 4) {
+            if (request && request->SegmentCount() > 4) {
                 auto timer = std::make_shared<boost::asio::deadline_timer>(_ios);
                 timer->expires_from_now(boost::posix_time::seconds(5));
                 timer->async_wait(boost::bind(&NdnResolver::waitContentCompletion, this, name, timer));
                 std::lock_guard<std::mutex> lock(_contents_mutex);
-                auto result = _pendings.emplace(name.get(-1).toUri(), timer);
+                _pendings.emplace(name.get(-1).toUri(), timer);
             } else {
                 _ndn_consumer->retrieve(name);
             }
@@ -98,26 +112,16 @@ void NdnResolver::checkForContent(const ndn::Interest &interest,
             }
         }
         if (content) {
-            auto it = content->findData(segment);
-            if (it != content->end()) {
-                _ndn_producer->publish(it->second);
-                std::shared_ptr<boost::asio::deadline_timer> pending_timer;
-                { // block for RAII
-                    std::lock_guard<std::mutex> lock(_pendings_mutex);
-                    auto it = _pendings.find(content->getName().get(-1).toUri());
-                    if (it != _pendings.end()) {
-                        std::cout << "ok" << std::endl;
-                        pending_timer = it->second;
-                    }
-                }
-                if (pending_timer) {
-                    std::cout << it->second->getFinalBlockId() << std::endl;
-                    if (it->second->getFinalBlockId().empty()) {
-                        std::cerr << "update" << std::endl;
-                        pending_timer->expires_from_now(boost::posix_time::seconds(5));
+            auto datas_it = content->findData(segment);
+            if (datas_it != content->end()) {
+                _ndn_producer->publish(datas_it->second);
+                std::lock_guard<std::mutex> lock(_pendings_mutex);
+                auto pendings_it = _pendings.find(content->getName().get(-1).toUri());
+                if (pendings_it != _pendings.end()) {
+                    if (datas_it->second->getFinalBlockId().empty()) {
+                        pendings_it->second->expires_from_now(boost::posix_time::seconds(5));
                     } else {
-                        std::cerr << "cancel" << std::endl;
-                        pending_timer->cancel();
+                        pendings_it->second->cancel();
                     }
                 }
             } else {
@@ -135,14 +139,10 @@ void NdnResolver::checkForContent(const ndn::Interest &interest,
 
 void NdnResolver::waitContentCompletion(const ndn::Name &name, const std::shared_ptr<boost::asio::deadline_timer> &timer) {
     if (timer->expires_at() <= boost::asio::deadline_timer::traits_type::now()) {
-        std::cerr << "do" << std::endl;
-        { // block for RAII
-            std::lock_guard<std::mutex> lock(_pendings_mutex);
-            _pendings.erase(name.get(-1).toUri());
-        }
         _ndn_consumer->retrieve(name);
+        std::lock_guard<std::mutex> lock(_pendings_mutex);
+        _pendings.erase(name.get(-1).toUri());
     } else {
-        std::cerr << "wait" << std::endl;
         timer->async_wait(boost::bind(&NdnResolver::waitContentCompletion, this, name, timer));
     }
 }
@@ -178,15 +178,24 @@ void NdnResolver::generateDataPackets(const std::shared_ptr<NdnContent> &content
 
 void NdnResolver::purgeOldContents() {
     std::lock_guard<std::mutex> lock(_contents_mutex);
+#ifndef NDEBUG
+    size_t remove_count = 0;
+#endif
     auto time_point = std::chrono::steady_clock::now();
     auto it = _contents.begin();
     while(it != _contents.end()){
         if(it->second->getLastAccess() + std::chrono::seconds(15) < time_point) {
             it = _contents.erase(it);
+#ifndef NDEBUG
+            ++remove_count;
+#endif
         } else {
             ++it;
         }
     }
+#ifndef NDEBUG
+    std::cout << remove_count << " content(s) removed from buffer (" << _contents.size() << " remaining contents)" << std::endl;
+#endif
     _purge_timer.expires_from_now(global::DEFAULT_WAIT_PURGE);
     _purge_timer.async_wait(boost::bind(&NdnResolver::purgeOldContents, this));
 }

@@ -1,5 +1,5 @@
 /*
-Copyright (C) 2015-2017  Xavier MARCHAL
+Copyright (C) 2015-2018  Xavier MARCHAL
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
 the Free Software Foundation, either version 3 of the License, or
@@ -34,7 +34,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 class HttpNdnInterpreter : public Module, public HttpSink, public NdnSource {
 private:
     // mandatory, ndn-cxx lib throws exception when it sends burst of interest with same name
-    std::mutex _mutex;
+    std::mutex _pending_requests_mutex;
     std::map<std::string, std::unordered_set<std::shared_ptr<HttpRequest>>> _pending_requests;
 
 public:
@@ -53,10 +53,8 @@ private:
 
     void fromNdnSinkHandler(const std::shared_ptr<NdnContent> &content);
 
-    void computeNames(const std::shared_ptr<HttpRequest> &http_request,
-                      const std::shared_ptr<boost::asio::deadline_timer> &timer);
+    void computeNames(const std::shared_ptr<HttpRequest> &http_request, const std::shared_ptr<boost::asio::deadline_timer> &timer);
 
-    void getHttpResponseHeader(const std::string &sha1,
-                               const std::shared_ptr<HttpResponse> &http_response,
+    void getHttpResponseHeader(const std::string &sha1, const std::shared_ptr<HttpResponse> &http_response,
                                const std::shared_ptr<boost::asio::deadline_timer> &timer);
 };

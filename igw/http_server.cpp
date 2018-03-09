@@ -1,5 +1,5 @@
 /*
-Copyright (C) 2015-2017  Xavier MARCHAL
+Copyright (C) 2015-2018  Xavier MARCHAL
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
 the Free Software Foundation, either version 3 of the License, or
@@ -43,12 +43,25 @@ std::map<std::string, method_type> available_methods {
         {"TRACE", TRACE}
 };
 
-HttpServer::HttpSession::HttpSession(HttpServer &http_server, const std::shared_ptr<boost::asio::ip::tcp::socket> &socket)
+#ifndef NDEBUG
+std::atomic<size_t> HttpServer::HttpSession::count {0};
+#endif
+
+HttpServer::HttpSession::HttpSession(HttpServer &http_server, boost::asio::ip::tcp::socket &&socket)
         : _http_server(http_server)
         , _strand(http_server._ios)
-        , _socket(socket)
+        , _socket(std::move(socket))
         , _read_timer(http_server._ios)
         , _write_timer(http_server._ios) {
+#ifndef NDEBUG
+	std::cout << "new session (" << ++count << " active session(s))" << std::endl;
+#endif
+}
+
+HttpServer::HttpSession::~HttpSession() {
+#ifndef NDEBUG
+	std::cout << "session destroyed (" << --count << " remaining session(s))" << std::endl;
+#endif
 }
 
 void HttpServer::HttpSession::setHttpResponse(const std::shared_ptr<HttpResponse> &http_response) {
@@ -68,14 +81,13 @@ void HttpServer::HttpSession::notify() {
 void HttpServer::HttpSession::read_request_header() {
     _read_timer.expires_from_now(global::DEFAULT_TIMEOUT_READ_HTTP_HEADER);
     _read_timer.async_wait(_strand.wrap(boost::bind(&HttpSession::timer_handler, shared_from_this(), _1)));
-    boost::asio::async_read_until(*_socket, _read_buffer, "\r\n\r\n",
-                                  _strand.wrap(boost::bind(&HttpSession::read_request_header_handler,
-                                                           shared_from_this(), _1, _2)));
+    boost::asio::async_read_until(_socket, _read_buffer, "\r\n\r\n",
+                                  _strand.wrap(boost::bind(&HttpSession::read_request_header_handler, shared_from_this(), _1, _2)));
 }
 
 void HttpServer::HttpSession::read_request_header_handler(const boost::system::error_code &err, size_t bytes_transferred) {
+    _read_timer.cancel();
     if (!err) {
-        _read_timer.cancel();
         size_t additional_bytes = _read_buffer.size() - bytes_transferred;
 
         std::istream is(&_read_buffer);
@@ -90,26 +102,16 @@ void HttpServer::HttpSession::read_request_header_handler(const boost::system::e
             if ((delimiter_index = header_line.find(' ', last_delimiter_index)) != std::string::npos) {
                 url = header_line.substr(last_delimiter_index, delimiter_index - last_delimiter_index);
                 last_delimiter_index = delimiter_index + 1;
-                if ((delimiter_index = header_line.find('\r', last_delimiter_index)) != std::string::npos) {
-                    _http_request->set_version(header_line.substr(last_delimiter_index, delimiter_index - last_delimiter_index));
-                } else {
-                    return;
-                }
-            } else {
-                return;
+                _http_request->set_version(header_line.substr(last_delimiter_index, (header_line.length() - last_delimiter_index) - 1));
             }
-        } else {
-            return;
         }
 
-        std::regex pattern("^(?:https?://)?(?:[^/]+?(?::\\d+)?)?(/.*?(\\.[^.?]+?)?)(\\?.*)?$", std::regex_constants::icase);
+	    std::regex pattern("^(?:https?://)?(?:[^/]+?(?::\\d+)?)?(/.*?(?:[^/]+?(\\.\\w+?)?)?)(\\?.*)?$", std::regex_constants::icase);
         std::smatch results;
         if (url.size() <= 4096 && std::regex_search(url, results, pattern)) {
             _http_request->set_path(results[1]);
             _http_request->set_extension(results[2]);
             _http_request->set_query(results[3]);
-        } else {
-            return;
         }
 
         std::getline(is, header_line);
@@ -177,6 +179,19 @@ void HttpServer::HttpSession::read_request_header_handler(const boost::system::e
                 _http_response->getRawStream()->is_completed(true);
                 write_response();
             }
+        } else {
+            _http_response = std::make_shared<HttpResponse>();
+            std::string body = "Malformed request syntax";
+            _http_response->set_version("HTTP/1.1");
+            _http_response->set_status_code("400");
+            _http_response->set_reason("Bad Request");
+            _http_response->set_field("connection", "close");
+            _http_response->set_field("content-type", "text/plain");
+            _http_response->getRawStream()->append_raw_data(body);
+            _http_response->set_field("content-length", std::to_string(body.size()));
+            _http_response->is_parsed(true);
+            _http_response->getRawStream()->is_completed(true);
+            write_response();
         }
     }
 }
@@ -185,7 +200,7 @@ void HttpServer::HttpSession::read_request_body(size_t remaining_bytes) {
     if (remaining_bytes > 0) {
         _read_timer.expires_from_now(global::DEFAULT_TIMEOUT_READ_HTTP_BODY);
         _read_timer.async_wait(_strand.wrap(boost::bind(&HttpSession::timer_handler, shared_from_this(), _1)));
-        boost::asio::async_read(*_socket, _read_buffer, boost::asio::transfer_at_least(1),
+        boost::asio::async_read(_socket, _read_buffer, boost::asio::transfer_at_least(1),
                                 _strand.wrap(boost::bind(&HttpSession::read_request_body_handler, shared_from_this(),
                                                          _1, _2, remaining_bytes)));
     } else {
@@ -200,9 +215,8 @@ void HttpServer::HttpSession::read_request_body(size_t remaining_bytes) {
 }
 
 void HttpServer::HttpSession::read_request_body_handler(const boost::system::error_code &err, size_t bytes_transferred, size_t remaining_bytes) {
+    _read_timer.cancel();
     if (!err) {
-        _read_timer.cancel();
-        _write_timer.expires_from_now(global::DEFAULT_TIMEOUT);
         _http_request->getRawStream()->append_raw_data(&_read_buffer);
         read_request_body(remaining_bytes - bytes_transferred);
     } else {
@@ -215,14 +229,14 @@ void HttpServer::HttpSession::read_request_body_chunk(long chunk_size) {
         //handler need more data
         _read_timer.expires_from_now(global::DEFAULT_TIMEOUT_READ_HTTP_BODY);
         _read_timer.async_wait(_strand.wrap(boost::bind(&HttpSession::timer_handler, shared_from_this(), _1)));
-        boost::asio::async_read(*_socket, _read_buffer, boost::asio::transfer_at_least(1),
+        boost::asio::async_read(_socket, _read_buffer, boost::asio::transfer_at_least(1),
                                 _strand.wrap(boost::bind(&HttpSession::read_request_body_chunk_handler,
                                                          shared_from_this(), _1, _2, chunk_size)));
     } else if(chunk_size < 0) {
         //find next chunck size
         _read_timer.expires_from_now(global::DEFAULT_TIMEOUT_READ_HTTP_BODY);
         _read_timer.async_wait(_strand.wrap(boost::bind(&HttpSession::timer_handler, shared_from_this(), _1)));
-        boost::asio::async_read_until(*_socket, _read_buffer, "\r\n",
+        boost::asio::async_read_until(_socket, _read_buffer, "\r\n",
                                       _strand.wrap(boost::bind(&HttpSession::read_request_body_chunk_handler,
                                                                shared_from_this(), _1, _2, chunk_size)));
     } else {
@@ -238,8 +252,8 @@ void HttpServer::HttpSession::read_request_body_chunk(long chunk_size) {
 }
 
 void HttpServer::HttpSession::read_request_body_chunk_handler(const boost::system::error_code &err, size_t bytes_transferred, long chunk_size) {
+    _read_timer.cancel();
     if (!err) {
-        _read_timer.cancel();
         std::istream is(&_read_buffer);
         std::string line;
 
@@ -264,9 +278,7 @@ void HttpServer::HttpSession::read_request_body_chunk_handler(const boost::syste
 }
 
 void HttpServer::HttpSession::write_response() {
-    if (_http_response) {
-        write_response_header();
-    } else {
+    if (!_http_response || _http_response->getRawStream()->is_aborted()) {
         _http_response = std::make_shared<HttpResponse>();
         std::string body = _http_request->get_field("host") + _http_request->get_path() + " takes too much time";
         _http_response->set_version("HTTP/1.1");
@@ -278,19 +290,28 @@ void HttpServer::HttpSession::write_response() {
         _http_response->set_field("content-length", std::to_string(body.size()));
         _http_response->is_parsed(true);
         _http_response->getRawStream()->is_completed(true);
-        write_response_header();
+
+        std::lock_guard<std::mutex> lock(_http_server._map_mutex);
+        _http_server._waiting_sessions.erase(_http_request);
+    } else if (!_http_response->is_parsed()) {
+        _http_response = std::make_shared<HttpResponse>();
+        std::string body = "Can't parse response form " + _http_request->get_field("host") + _http_request->get_path();
+        _http_response->set_version("HTTP/1.1");
+        _http_response->set_status_code("502");
+        _http_response->set_reason("Bad Gateway");
+        _http_response->set_field("connection", "close");
+        _http_response->set_field("content-type", "text/plain");
+        _http_response->getRawStream()->append_raw_data(body);
+        _http_response->set_field("content-length", std::to_string(body.size()));
+        _http_response->is_parsed(true);
+        _http_response->getRawStream()->is_completed(true);
     }
+    write_response_header();
 }
 
 void HttpServer::HttpSession::write_response_header() {
-    if (_http_response->is_parsed()) {
-        boost::asio::async_write(*_socket, boost::asio::buffer(_http_response->make_header()),
-                                 _strand.wrap(boost::bind(&HttpSession::write_response_header_handler,
-                                                          shared_from_this(), _1, _2)));
-    } else if (!_http_response->getRawStream()->is_aborted()) {
-        _write_timer.expires_from_now(global::DEFAULT_WAIT_REDO);
-        _write_timer.async_wait(_strand.wrap(boost::bind(&HttpSession::write_response_header, shared_from_this())));
-    }
+        boost::asio::async_write(_socket, boost::asio::buffer(_http_response->make_header()),
+                                 _strand.wrap(boost::bind(&HttpSession::write_response_header_handler, shared_from_this(), _1, _2)));
 }
 
 void HttpServer::HttpSession::write_response_header_handler(const boost::system::error_code &err, size_t bytes_transferred) {
@@ -304,10 +325,10 @@ void HttpServer::HttpSession::write_response_header_handler(const boost::system:
 void HttpServer::HttpSession::write_response_body(size_t total_bytes_transferred) {
     long read_bytes = _http_response->getRawStream()->readRawData(total_bytes_transferred, _write_buffer, global::DEFAULT_BUFFER_SIZE);
     if (read_bytes > 0) {
-        boost::asio::async_write(*_socket, boost::asio::buffer(_write_buffer, read_bytes),
+        boost::asio::async_write(_socket, boost::asio::buffer(_write_buffer, read_bytes),
                                  _strand.wrap(boost::bind(&HttpSession::write_response_body_handler, shared_from_this(),
                                                           _1, _2, total_bytes_transferred)));
-    } else if (read_bytes < 0) { //not enough data in response stream
+    } else if (read_bytes < 0) { // not enough data in response stream
         _write_timer.expires_from_now(global::DEFAULT_WAIT_REDO);
         _write_timer.async_wait(_strand.wrap(boost::bind(&HttpSession::write_response_body, shared_from_this(), total_bytes_transferred)));
     } else { //response completed
@@ -315,7 +336,7 @@ void HttpServer::HttpSession::write_response_body(size_t total_bytes_transferred
                          _http_request->get_field("host") + _http_request->get_path() + _http_request->get_query() + "\t" +
                          std::to_string(total_bytes_transferred) + "\t" +
                          std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - _start).count()));
-        if(_http_response->get_field("connection") != "close") {
+        if(_http_response->get_field("connection") == "keep-alive") {
             start();
         }
     }
@@ -335,7 +356,7 @@ void HttpServer::HttpSession::timer_handler(const boost::system::error_code &err
         if(_http_response) {
             _http_response->getRawStream()->is_aborted(true);
         }
-        _socket->close();
+        _socket.close();
     }
 }
 
@@ -345,7 +366,8 @@ HttpServer::HttpServer(unsigned short port, size_t concurrency)
         : Module(concurrency)
         , _file("http_server_logs.txt", std::ofstream::out | std::ofstream::trunc)
         , _start(std::chrono::steady_clock::now())
-        , _acceptor(_ios, boost::asio::ip::tcp::endpoint(boost::asio::ip::tcp::v4(), port), true) {
+        , _acceptor(_ios, boost::asio::ip::tcp::endpoint(boost::asio::ip::tcp::v4(), port), true)
+        , _acceptor_socket(_ios) {
 
 }
 
@@ -354,8 +376,7 @@ void HttpServer::run() {
 }
 
 void HttpServer::accept() {
-    auto socket = std::make_shared<boost::asio::ip::tcp::socket>(_ios);
-    _acceptor.async_accept(*socket, boost::bind(&HttpServer::accept_handler, this, _1, socket));
+    _acceptor.async_accept(_acceptor_socket, boost::bind(&HttpServer::accept_handler, this, _1));
 }
 
 void HttpServer::fromHttpSink(const std::shared_ptr<HttpRequest> &http_request,
@@ -369,10 +390,10 @@ void HttpServer::log(const std::string &line) {
           << "\t" << line << std::endl;
 }
 
-void HttpServer::accept_handler(const boost::system::error_code &err, const std::shared_ptr<boost::asio::ip::tcp::socket> &socket) {
+void HttpServer::accept_handler(const boost::system::error_code &err) {
     if (!err) {
+        std::make_shared<HttpSession>(*this, std::move(_acceptor_socket))->start();
         accept();
-        std::make_shared<HttpSession>(*this, socket)->start();
     }
 }
 
@@ -380,8 +401,10 @@ void HttpServer::fromHttpSinkHandler(const std::shared_ptr<HttpRequest> &http_re
     std::lock_guard<std::mutex> lock(_map_mutex);
     auto it = _waiting_sessions.find(http_request);
     if (it != _waiting_sessions.end()) {
-        it->second->setHttpResponse(http_response);
-        it->second->notify();
+        if(auto session = it->second.lock()) {
+            session->setHttpResponse(http_response);
+            session->notify();
+        }
         _waiting_sessions.erase(it);
     }
 }

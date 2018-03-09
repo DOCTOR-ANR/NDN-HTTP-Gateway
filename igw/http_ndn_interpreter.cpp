@@ -1,5 +1,5 @@
 /*
-Copyright (C) 2015-2017  Xavier MARCHAL
+Copyright (C) 2015-2018  Xavier MARCHAL
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
 the Free Software Foundation, either version 3 of the License, or
@@ -97,11 +97,13 @@ void HttpNdnInterpreter::fromNdnSinkHandler(const std::shared_ptr<NdnContent> &c
     getHttpResponseHeader(content->getName().get(-1).toUri(), http_response, timer);
 }
 
-void HttpNdnInterpreter::computeNames(const std::shared_ptr<HttpRequest> &http_request,
-                                      const std::shared_ptr<boost::asio::deadline_timer> &timer) {
+void HttpNdnInterpreter::computeNames(const std::shared_ptr<HttpRequest> &http_request, const std::shared_ptr<boost::asio::deadline_timer> &timer) {
     if(!http_request->getRawStream()->is_aborted()) {
         if (http_request->is_parsed() && (http_request->getRawStream()->is_completed() ||
                 http_request->getRawStream()->raw_data_as_string().size() >= 1024)) {
+            //std::cout << http_request->make_header() << std::endl;
+            //std::exit(0);
+
             auto delimiter = http_request->get_field("accept-encoding").find(", sdch");
             if (delimiter != std::string::npos) {
                 http_request->set_field("accept-encoding", http_request->get_field("accept-encoding").substr(delimiter, 6));
@@ -125,7 +127,7 @@ void HttpNdnInterpreter::computeNames(const std::shared_ptr<HttpRequest> &http_r
 
 
             { // block for RAII
-                std::lock_guard<std::mutex> lock(_mutex);
+                std::lock_guard<std::mutex> lock(_pending_requests_mutex);
                 auto it = _pending_requests.find(sha1);
                 if (it == _pending_requests.end()) {
                     _pending_requests.emplace(sha1, std::unordered_set<std::shared_ptr<HttpRequest>>{http_request});
@@ -178,8 +180,7 @@ void HttpNdnInterpreter::computeNames(const std::shared_ptr<HttpRequest> &http_r
     }
 }
 
-void HttpNdnInterpreter::getHttpResponseHeader(const std::string &sha1,
-                                               const std::shared_ptr<HttpResponse> &http_response,
+void HttpNdnInterpreter::getHttpResponseHeader(const std::string &sha1, const std::shared_ptr<HttpResponse> &http_response,
                                                const std::shared_ptr<boost::asio::deadline_timer> &timer) {
     if(!http_response->getRawStream()->is_aborted()) {
         // keep track of completion before doing the job because if set to true and no HTTP header found then discard
@@ -199,62 +200,61 @@ void HttpNdnInterpreter::getHttpResponseHeader(const std::string &sha1,
                 if ((delimiter_index = header_line.find(' ', last_delimiter_index)) != std::string::npos) {
                     http_response->set_status_code(header_line.substr(last_delimiter_index, delimiter_index - last_delimiter_index));
                     last_delimiter_index = delimiter_index + 1;
-                    if ((delimiter_index = header_line.find('\r', last_delimiter_index)) != std::string::npos) {
-                        http_response->set_reason(header_line.substr(last_delimiter_index, delimiter_index - last_delimiter_index));
-                    } else {
-                        http_response->getRawStream()->is_aborted(true);
-                        std::lock_guard<std::mutex> lock(_mutex);
-                        _pending_requests.erase(sha1);
-                        return;
-                    }
-                } else {
-                    http_response->getRawStream()->is_aborted(true);
-                    std::lock_guard<std::mutex> lock(_mutex);
-                    _pending_requests.erase(sha1);
-                    return;
+                    http_response->set_reason(header_line.substr(last_delimiter_index, (header_line.length() - last_delimiter_index) - 1));
                 }
-            } else {
-                http_response->getRawStream()->is_aborted(true);
-                std::lock_guard<std::mutex> lock(_mutex);
-                _pending_requests.erase(sha1);
-                return;
             }
 
             std::getline(header, header_line);
             while ((delimiter_index = header_line.find(':')) != std::string::npos) {
                 std::string name = header_line.substr(0, delimiter_index);
                 std::transform(name.begin(), name.end(), name.begin(), ::tolower);
+                name.erase(0, name.find_first_not_of(' '));
+                name.erase(name.find_last_not_of(' ') + 1);
                 std::string value = header_line.substr(delimiter_index + 1, header_line.size() - delimiter_index - 2);
                 value.erase(0, value.find_first_not_of(' '));
+                value.erase(value.find_last_not_of(' ') + 1);
                 http_response->set_field(name, value);
                 std::getline(header, header_line);
             }
 
             if (http_response->has_minimal_requirements()) {
                 http_response->is_parsed(true);
-                std::unordered_set<std::shared_ptr<HttpRequest>> set;
-                { // block for RAII
-                    std::lock_guard<std::mutex> lock(_mutex);
-                    set = std::move(_pending_requests.at(sha1));
-                    _pending_requests.erase(sha1);
-                }
-                for (const auto& req : set) {
-                    _http_source->fromHttpSink(req, http_response);
-                }
             } else {
                 http_response->getRawStream()->is_aborted(true);
-                std::lock_guard<std::mutex> lock(_mutex);
+            }
+
+            std::unordered_set<std::shared_ptr<HttpRequest>> set;
+            { // block for RAII
+                std::lock_guard<std::mutex> lock(_pending_requests_mutex);
+                set = std::move(_pending_requests.at(sha1));
                 _pending_requests.erase(sha1);
+            }
+            for (const auto& req : set) {
+                _http_source->fromHttpSink(req, http_response);
             }
         } else if (!is_complete) {
             timer->expires_from_now(global::DEFAULT_WAIT_REDO);
             timer->async_wait(boost::bind(&HttpNdnInterpreter::getHttpResponseHeader, this, sha1, http_response, timer));
         } else {
-            std::lock_guard<std::mutex> lock(_mutex);
-            _pending_requests.erase(sha1);
+            std::unordered_set<std::shared_ptr<HttpRequest>> set;
+            { // block for RAII
+                std::lock_guard<std::mutex> lock(_pending_requests_mutex);
+                set = std::move(_pending_requests.at(sha1));
+                _pending_requests.erase(sha1);
+            }
+            for (const auto& req : set) {
+                _http_source->fromHttpSink(req, http_response);
+            }
         }
     } else {
-        std::lock_guard<std::mutex> lock(_mutex);
-        _pending_requests.erase(sha1);
+        std::unordered_set<std::shared_ptr<HttpRequest>> set;
+        { // block for RAII
+            std::lock_guard<std::mutex> lock(_pending_requests_mutex);
+            set = std::move(_pending_requests.at(sha1));
+            _pending_requests.erase(sha1);
+        }
+        for (const auto& req : set) {
+            _http_source->fromHttpSink(req, http_response);
+        }
     }
 }

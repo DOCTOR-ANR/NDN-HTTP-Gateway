@@ -1,5 +1,5 @@
 /*
-Copyright (C) 2015-2017  Xavier MARCHAL
+Copyright (C) 2015-2018  Xavier MARCHAL
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
 the Free Software Foundation, either version 3 of the License, or
@@ -19,9 +19,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 namespace global {
     const boost::posix_time::milliseconds DEFAULT_WAIT_REDO {5};
     const boost::posix_time::seconds DEFAULT_WAIT_PURGE {60};
-    const boost::posix_time::seconds DEFAULT_TIMEOUT {10};
+    const boost::posix_time::seconds DEFAULT_TIMEOUT {15};
     const boost::posix_time::seconds DEFAULT_TIMEOUT_CONNECT {2};
-    const boost::posix_time::seconds DEFAULT_TIMEOUT_READ_HTTP_HEADER {4};
+    const boost::posix_time::seconds DEFAULT_TIMEOUT_READ_HTTP_HEADER {5};
     const boost::posix_time::seconds DEFAULT_TIMEOUT_READ_HTTP_BODY {2};
     const uint32_t DEFAULT_BUFFER_SIZE = 4096;
 };

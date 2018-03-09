@@ -3,18 +3,9 @@ project(egw)
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/bin")
 set(CMAKE_CXX_STANDARD 11)
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2 -g -pipe")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O0 -g -pipe")
 
-set(SOURCE_FILES main.cpp
-        ndn_receiver.cpp
-        ndn_sender.cpp
-        ndn_resolver.cpp
-        ndn_http_interpreter.cpp
-        http_client.cpp
-        ndn_content.cpp
-        http_request.cpp
-        http_response.cpp
-        raw_stream.cpp)
+file(GLOB SOURCE_FILES *.cpp *.h)
 
 find_package(Boost COMPONENTS system thread REQUIRED)
 

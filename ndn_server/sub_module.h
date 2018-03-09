@@ -1,5 +1,5 @@
 /*
-Copyright (C) 2015-2017  Xavier MARCHAL
+Copyright (C) 2015-2018  Xavier MARCHAL
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
 the Free Software Foundation, either version 3 of the License, or
@@ -14,29 +14,21 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #pragma once
 
-#include <ndn-cxx/name.hpp>
+#include "module.h"
 
-#include <memory>
-
-#include "message.h"
-#include "seekable_raw_stream.h"
-
-class NdnMessage : public Message {
-private:
-    ndn::Name _name;
-
-    ndn::time::milliseconds _freshness;
+template <class T> //, class = class std::enable_if<std::is_base_of<Module, T>::value, T>::type>
+class SubModule : public Module {
+protected:
+    T &_parent;
 
 public:
-    NdnMessage();
+    SubModule(size_t concurrency, T &parent) : Module(concurrency), _parent(parent) {
 
-    NdnMessage(const std::shared_ptr<SeekableRawStream> &raw_stream);
+    }
 
-    const ndn::Name& get_name() const;
+    virtual ~SubModule() {
 
-    const NdnMessage& set_name(const ndn::Name &name);
+    }
 
-    const ndn::time::milliseconds& get_freshness() const;
-
-    const NdnMessage& set_freshness(const ndn::time::milliseconds& freshness);
+    virtual void run() override = 0;
 };
